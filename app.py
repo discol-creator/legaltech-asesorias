@@ -14,7 +14,7 @@ APP_URL = "https://tu-app-barragan.streamlit.app"
 if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
 
-st.set_page_config(page_title="Barragán Consultoría", layout="centered", page_icon="⚖️")
+st.set_page_config(page_title="Consultorías", layout="centered", page_icon="🧳")
 
 # --- ESTILO ---
 st.markdown("""
@@ -37,7 +37,7 @@ conn.commit()
 
 # --- NAVEGACIÓN ---
 with st.sidebar:
-    st.title("⚖️ Barragán")
+    st.title("Consultorías")
     menu = st.radio("Menú", ["✨ Solicitar", "🔍 Consultar", "🔒 Admin"])
     if st.session_state['autenticado']:
         if st.button("🚪 Cerrar Sesión"):
@@ -90,7 +90,7 @@ elif menu == "🔒 Admin":
                 ced = c1.text_input("Cédula")
                 pho = c2.text_input("Teléfono WhatsApp")
                 val = c2.number_input("Valor Total")
-                tra = st.selectbox("Trámite", ["Ajustes Razonables", "Borrados", "Peticiones"])
+                tra = st.selectbox("Trámite", ["Ajustes Razonables - Aplicación Ley Estatuitaria 1618", "Correción y borrado de castigos en centratles por falta de notificacion previa", "Derecho de Peticiones acorde a tu necesidad"])
                 acc = st.text_input("Entidad")
                 if st.form_submit_button("Registrar"):
                     num = f"FB-{datetime.now().strftime('%y%m%d%H%M')}"
