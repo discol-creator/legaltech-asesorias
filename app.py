@@ -7,30 +7,32 @@ from datetime import datetime
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.lib import colors
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase import pdfmetrics
 
+# ========================
 # CONFIGURACIÓN GENERAL
-st.set_page_config(page_title="Gestión Contractual", layout="wide")
+# ========================
+
+st.set_page_config(page_title="LegalTech Gestión Contractual", layout="wide")
 
 CONSULTOR_NOMBRE = "FRANCISCO JOSÉ BARRAGÁN BARRAGÁN"
 CONSULTOR_DOC = "CE 7354548"
 LLAVE_PAGO = "@francisbarragan"
 BANCO = "Banco de Bogotá"
+CLAVE_ADMIN = "Francis2026Secure"
 
-# REGISTRAR FUENTE UNICODE
-pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
-
-# CREAR CARPETAS
 os.makedirs("contratos_generados", exist_ok=True)
 os.makedirs("contratos_firmados", exist_ok=True)
 
-# BASE DE DATOS
+# ========================
+# BASE DE DATOS SEGURA
+# ========================
+
 conn = sqlite3.connect("database.db", check_same_thread=False)
 c = conn.cursor()
 
-c.execute('''
+c.execute("""
 CREATE TABLE IF NOT EXISTS casos (
     id TEXT PRIMARY KEY,
     consecutivo INTEGER,
@@ -44,25 +46,26 @@ CREATE TABLE IF NOT EXISTS casos (
     token TEXT,
     fecha TEXT
 )
-''')
+""")
 
-c.execute('''
+c.execute("""
 CREATE TABLE IF NOT EXISTS avances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     caso_id TEXT,
     descripcion TEXT,
     fecha TEXT
 )
-''')
+""")
 
 conn.commit()
 
+# ========================
 # FUNCIONES
+# ========================
 
 def obtener_consecutivo():
-    c.execute("SELECT MAX(consecutivo) FROM casos")
-    result = c.fetchone()[0]
-    return 1 if result is None else result + 1
+    c.execute("SELECT COALESCE(MAX(consecutivo),0) FROM casos")
+    return c.fetchone()[0] + 1
 
 def generar_token(documento):
     return hashlib.sha256(documento.encode()).hexdigest()
@@ -76,86 +79,99 @@ def generar_pdf(data):
     elements.append(Paragraph(f"<b>CONTRATO No. {data['consecutivo']:04d}-2026</b>", styles['Title']))
     elements.append(Spacer(1, 0.3 * inch))
 
-    contrato = f"""
+    texto = f"""
 CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA
 
-Entre los suscritos a saber:
+Entre los suscritos:
 
-{data['nombre']}, mayor de edad, identificado(a) con {data['tipo_doc']} No. {data['documento']}, 
-quien actúa en nombre propio y para efectos del presente contrato se denominará EL CONTRATANTE,
+{data['nombre']}, identificado(a) con {data['tipo_doc']} No. {data['documento']}, 
+quien se denominará EL CONTRATANTE,
 
 y
 
-{CONSULTOR_NOMBRE}, mayor de edad, identificado con {CONSULTOR_DOC}, profesional con Maestría 
-en Innovación Social, inscrito en el RUT 7490, quien se denominará EL CONSULTOR,
-
-se celebra el presente contrato bajo las siguientes cláusulas:
+{CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC}, 
+inscrito en RUT 7490, quien se denominará EL CONSULTOR,
 
 PRIMERA. OBJETO
-Prestación de servicios para {data['tipo_tramite']} contra {data['accionado']}.
+{data['tipo_tramite']} contra {data['accionado']}.
 
-SEGUNDA. NATURALEZA
-Servicio civil independiente. El consultor no es abogado ni actúa como apoderado.
-
-TERCERA. VALOR
+CUARTA. VALOR
 Valor total: ${data['valor']:,} COP.
-
 Anticipo 50%: ${data['valor']//2:,} COP.
 Saldo 50%: ${data['valor']//2:,} COP.
 
-Pagos vía Llave Bre-B: {LLAVE_PAGO}
+Pago vía Llave Bre-B: {LLAVE_PAGO}
 Destino: {BANCO}
 
-DÉCIMA PRIMERA. DOMICILIO
-Medellín, Colombia.
+El consultor no ejerce representación judicial.
 
-Para constancia, se firma el {datetime.now().strftime("%d/%m/%Y")}.
-
-EL CONTRATANTE
-
-____________________________
-
-{CONSULTOR_NOMBRE}
+Firmado en Medellín el {datetime.now().strftime("%d/%m/%Y")}.
 """
 
-    elements.append(Paragraph(contrato.replace("\n", "<br/>"), styles['Normal']))
+    elements.append(Paragraph(texto.replace("\n", "<br/>"), styles["Normal"]))
     doc.build(elements)
 
     return file_path
 
-# MENÚ
+# ========================
+# AUTENTICACIÓN
+# ========================
 
-menu = st.sidebar.selectbox("Menú", ["Crear Caso", "Gestión Interna", "Consulta Cliente"])
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
-# CREAR CASO
+menu = st.sidebar.radio("Menú", ["Consulta Pública", "Panel Gestión"])
 
-if menu == "Crear Caso":
-    st.title("Crear Nuevo Caso")
+if menu == "Panel Gestión":
+    if not st.session_state.auth:
+        clave = st.sidebar.text_input("Clave de acceso", type="password")
+        if st.sidebar.button("Ingresar"):
+            if clave == CLAVE_ADMIN:
+                st.session_state.auth = True
+                st.success("Acceso concedido")
+            else:
+                st.error("Clave incorrecta")
+        st.stop()
 
-    nombre = st.text_input("Nombre Completo del Cliente")
-    tipo_doc = st.selectbox("Tipo de Documento", ["Cédula de Ciudadanía", "Cédula de Extranjería", "Pasaporte"])
-    documento = st.text_input("Número de Documento")
+# ========================
+# CREAR CASO (PROTEGIDO)
+# ========================
+
+if menu == "Panel Gestión" and st.session_state.auth:
+
+    st.header("Crear Nuevo Caso")
+
+    nombre = st.text_input("Nombre Completo")
+    tipo_doc = st.selectbox("Tipo Documento", ["Cédula de Ciudadanía", "Cédula de Extranjería", "Pasaporte"])
+    documento = st.text_input("Número Documento")
     tipo_tramite = st.selectbox("Tipo de Trámite", [
         "Solicitud de Ajustes Razonables",
-        "Reclamación por reporte negativo",
+        "Reclamación reporte negativo",
         "Derecho de Petición",
         "Otro"
     ])
     accionado = st.text_input("Entidad Accionada")
-    valor = st.number_input("Valor del Contrato (COP)", min_value=0, step=50000)
+    valor = st.number_input("Valor (COP)", min_value=0, step=50000)
 
-    if st.button("Crear y Generar Contrato"):
+    if st.button("Generar Contrato"):
         consecutivo = obtener_consecutivo()
         caso_id = str(uuid.uuid4())
         token = generar_token(documento)
-        fecha = datetime.now().strftime("%Y-%m-%d")
 
-        c.execute('''
-            INSERT INTO casos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            caso_id, consecutivo, nombre, tipo_doc,
-            documento, tipo_tramite, accionado,
-            valor, "Pendiente Firma", token, fecha
+        c.execute("""
+        INSERT INTO casos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            caso_id,
+            consecutivo,
+            nombre,
+            tipo_doc,
+            documento,
+            tipo_tramite,
+            accionado,
+            valor,
+            "Pendiente Firma",
+            token,
+            datetime.now().strftime("%Y-%m-%d")
         ))
         conn.commit()
 
@@ -169,20 +185,17 @@ if menu == "Crear Caso":
             "valor": valor
         })
 
-        with open(pdf_path, "rb") as file:
+        with open(pdf_path, "rb") as f:
             st.download_button(
-                label="Descargar Contrato para Firma",
-                data=file,
-                file_name=f"Contrato_{consecutivo}.pdf",
-                mime="application/pdf"
+                "Descargar Contrato",
+                f,
+                file_name=f"Contrato_{consecutivo}.pdf"
             )
 
-        st.success("Contrato generado correctamente.")
+        st.success("Contrato generado correctamente")
 
-# GESTIÓN INTERNA
-
-elif menu == "Gestión Interna":
-    st.title("Panel de Gestión")
+    # GESTIÓN DE CASOS
+    st.header("Gestión de Casos")
 
     casos = c.execute("SELECT * FROM casos ORDER BY consecutivo DESC").fetchall()
 
@@ -200,22 +213,18 @@ elif menu == "Gestión Interna":
                 key=caso[0]
             )
 
-            if st.button("Actualizar Estado", key=caso[0]+"estado"):
+            if st.button("Actualizar", key=caso[0]):
                 c.execute("UPDATE casos SET estado=? WHERE id=?", (nuevo_estado, caso[0]))
                 conn.commit()
                 st.success("Estado actualizado")
 
-            avance = st.text_area("Agregar Avance", key=caso[0]+"avance")
-            if st.button("Guardar Avance", key=caso[0]+"btn"):
-                c.execute("INSERT INTO avances (caso_id, descripcion, fecha) VALUES (?, ?, ?)",
-                          (caso[0], avance, datetime.now().strftime("%Y-%m-%d")))
-                conn.commit()
-                st.success("Avance guardado")
+# ========================
+# CONSULTA PÚBLICA
+# ========================
 
-# CONSULTA CLIENTE
+if menu == "Consulta Pública":
 
-elif menu == "Consulta Cliente":
-    st.title("Consulta de Proceso")
+    st.header("Consulta de Proceso")
 
     doc = st.text_input("Ingrese su número de documento")
 
@@ -224,12 +233,8 @@ elif menu == "Consulta Cliente":
         caso = c.execute("SELECT * FROM casos WHERE token=?", (token,)).fetchone()
 
         if caso:
-            st.write(f"Estado actual: {caso[8]}")
+            st.write(f"Estado: {caso[8]}")
             st.write(f"Trámite: {caso[5]}")
-            st.write(f"Entidad accionada: {caso[6]}")
-
-            avances = c.execute("SELECT descripcion, fecha FROM avances WHERE caso_id=?", (caso[0],)).fetchall()
-            for a in avances:
-                st.write(f"{a[1]} - {a[0]}")
+            st.write(f"Entidad: {caso[6]}")
         else:
             st.error("No se encontró proceso asociado.")
