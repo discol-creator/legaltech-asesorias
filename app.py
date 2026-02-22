@@ -7,9 +7,9 @@ import qrcode
 import io
 import urllib.parse
 
-# --- DATOS DEL CONSULTOR ---
+# --- DATOS DEL CONSULTOR (VERIFICADOS) ---
 CONSULTOR_NOMBRE = "FRANCISCO JOSÉ BARRAGÁN BARRAGÁN"
-CONSULTOR_ID = "CE 7354548"
+ID_CONSULTOR = "CE 7354548"
 CLAVE_ADMIN = "1234"
 APP_URL = "https://legaltech-asesorias.streamlit.app"
 
@@ -49,7 +49,7 @@ init_db()
 
 # --- GENERADOR DE PDF A4 PULCRO ---
 def generar_contrato_pulcro(datos):
-    # Configuración A4 (210 x 297 mm) con márgenes de 25mm
+    # Configuración A4 estricta con márgenes de 25mm
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_margins(left=25, top=25, right=25)
     pdf.set_auto_page_break(auto=True, margin=25)
@@ -68,13 +68,14 @@ def generar_contrato_pulcro(datos):
     pdf.set_font("Arial", "", 10)
     pdf.multi_cell(w_util, 6, f"CONTRATANTE: {datos['nombre'].upper()}, identificado con C.C. No. {datos['cedula']}, actuando en nombre propio.")
     pdf.ln(2)
+    # Variable ID_CONSULTOR corregida aquí
     pdf.multi_cell(w_util, 6, f"CONSULTOR: {CONSULTOR_NOMBRE}, identificado con {ID_CONSULTOR}, profesional con Maestría en Innovación Social y experto en Accesibilidad (RUT 7490).")
     pdf.ln(8)
     
     pdf.multi_cell(w_util, 6, "Las partes acuerdan suscribir el presente contrato bajo las siguientes cláusulas:")
     pdf.ln(4)
 
-    # Bloque de Cláusulas con Interlineado Pulcro
+    # Bloque de Cláusulas
     clausulas = [
         ("PRIMERA: OBJETO DEL SERVICIO", 
          f"Asesoría técnica y estratégica para la gestión de: {datos['tramite']} ante la entidad {datos['accionado']}."),
@@ -119,7 +120,7 @@ def generar_contrato_pulcro(datos):
     pdf.cell(90, 10, "EL CONTRATANTE", align='C')
     pdf.cell(100, 10, "EL CONSULTOR", align='C')
 
-    # Código QR (Posicionado en la esquina inferior para no estorbar)
+    # Código QR
     qr = qrcode.make(APP_URL)
     qr_b = io.BytesIO()
     qr.save(qr_b, format="PNG")
@@ -149,49 +150,4 @@ elif menu == "🔍 Consultar":
     st.title("Mi Estado")
     cc_s = st.text_input("Cédula", type="password")
     if st.button("Consultar"):
-        conn = sqlite3.connect('consultoria_pulcra.db')
-        df = pd.read_sql_query("SELECT * FROM gestion_procesos WHERE cedula=?", conn, params=(cc_s,))
-        conn.close()
-        if not df.empty:
-            st.success(f"Estado: {df['estado'].iloc[0]}")
-            st.info(f"Avance: {df['avances'].iloc[0]}")
-        else: st.error("No registrado.")
-
-elif menu == "🔒 Admin":
-    if not st.session_state.auth:
-        if st.text_input("Clave", type="password") == CLAVE_ADMIN:
-            st.session_state.auth = True
-            st.rerun()
-    else:
-        st.title("Administración")
-        tab1, tab2 = st.tabs(["📝 Nuevo Registro", "📊 Gestión"])
-        with tab1:
-            with st.form("registro_p"):
-                c1, c2 = st.columns(2)
-                nom = c1.text_input("Cliente")
-                ced = c1.text_input("Cédula")
-                pho = c2.text_input("WhatsApp")
-                val = c2.number_input("Valor COP", min_value=0)
-                tra = st.selectbox("Trámite", ["Solicitud de Ajustes Razonables", "Reclamación falta de notificación", "Estructuración Derecho de Petición"])
-                acc = st.text_input("Entidad")
-                if st.form_submit_button("Registrar Caso"):
-                    num = f"CON-{datetime.now().strftime('%y%m%d%H%M')}"
-                    fec = datetime.now().strftime("%Y-%m-%d")
-                    conn = sqlite3.connect('consultoria_pulcra.db')
-                    cur = conn.cursor()
-                    cur.execute("INSERT INTO gestion_procesos (numero, nombre, cedula, telefono, tramite, accionado, valor, estado, avances, fecha) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                              (num, nom, ced, pho, tra, acc, val, "Abierto", "Iniciado", fec))
-                    conn.commit()
-                    conn.close()
-                    st.session_state.pdf_contrato = generar_contrato_pulcro({"nombre":nom, "cedula":ced, "tramite":tra, "accionado":acc, "valor":val})
-                    st.session_state.nombre_pdf = f"Contrato_{nom}.pdf"
-                    st.success("✅ Guardado.")
-
-            if st.session_state.pdf_contrato:
-                st.download_button("📥 DESCARGAR CONTRATO A4", st.session_state.pdf_contrato, st.session_state.nombre_pdf, "application/pdf")
-
-        with tab2:
-            conn = sqlite3.connect('consultoria_pulcra.db')
-            df_g = pd.read_sql_query("SELECT id, nombre, estado FROM gestion_procesos", conn)
-            conn.close()
-            st.dataframe(df_g, use_container_width=True)
+        conn
