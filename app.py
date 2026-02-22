@@ -8,9 +8,9 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 
-# ==============================
-# CONFIG
-# ==============================
+# =====================================
+# CONFIGURACIÓN
+# =====================================
 
 st.set_page_config(page_title="LegalTech Gestión", layout="wide")
 
@@ -23,11 +23,12 @@ CLAVE_ADMIN = "Francis2026Secure"
 os.makedirs("contratos_generados", exist_ok=True)
 os.makedirs("contratos_firmados", exist_ok=True)
 
-# ==============================
-# BASE DE DATOS
-# ==============================
+# =====================================
+# BASE DE DATOS ROBUSTA
+# =====================================
 
 conn = sqlite3.connect("database.db", check_same_thread=False)
+conn.row_factory = sqlite3.Row  # 🔥 CLAVE: acceso por nombre
 c = conn.cursor()
 
 c.execute("""
@@ -57,83 +58,66 @@ CREATE TABLE IF NOT EXISTS avances (
 
 conn.commit()
 
-# ==============================
+# =====================================
 # FUNCIONES
-# ==============================
+# =====================================
 
 def obtener_consecutivo():
-    c.execute("SELECT COALESCE(MAX(consecutivo),0) FROM casos")
-    return c.fetchone()[0] + 1
+    c.execute("SELECT COALESCE(MAX(consecutivo),0) as maximo FROM casos")
+    return c.fetchone()["maximo"] + 1
 
 def generar_token(documento):
     return hashlib.sha256(documento.encode()).hexdigest()
 
-def generar_contrato_texto(data):
+def generar_pdf(data):
     anticipo = data["valor"] // 2
     saldo = data["valor"] - anticipo
 
-    return f"""
+    texto = f"""
 CONTRATO No. {data['consecutivo']:04d}-2026
 
 CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA
 
-Entre los suscritos a saber:
+Entre los suscritos:
 
-{data['nombre']}, mayor de edad, identificado(a) con {data['tipo_doc']} No. {data['documento']}, quien actúa en nombre propio y para efectos del presente contrato se denominará EL CONTRATANTE,
+{data['nombre']}, mayor de edad, identificado(a) con {data['tipo_doc']} No. {data['documento']}, quien actúa en nombre propio y se denomina EL CONTRATANTE,
 
 y
 
-{CONSULTOR_NOMBRE}, mayor de edad, identificado con {CONSULTOR_DOC}, profesional con Maestría en Innovación Social, consultor en accesibilidad y gestión estratégica, inscrito en el RUT bajo la actividad económica 7490, quien para efectos del presente contrato se denominará EL CONSULTOR,
-
-se celebra el presente Contrato de Prestación de Servicios de Consultoría Técnica y Estratégica, el cual se regirá por las siguientes cláusulas:
+{CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC}, inscrito en RUT 7490, quien se denomina EL CONSULTOR.
 
 PRIMERA. OBJETO
-EL CONSULTOR se obliga a prestar servicios de asesoría técnica para {data['tipo_tramite']} contra {data['accionado']}.
+Prestación de servicios para {data['tipo_tramite']} contra {data['accionado']}.
 
-SEGUNDA. NATURALEZA DEL SERVICIO
-Servicio civil independiente. El consultor no es abogado titulado ni ejerce representación judicial.
-
-CUARTA. VALOR Y FORMA DE PAGO
-El valor total del contrato asciende a ${data['valor']:,} COP.
-
+CUARTA. VALOR
+Valor total: ${data['valor']:,} COP.
 Anticipo 50%: ${anticipo:,} COP.
 Saldo 50%: ${saldo:,} COP.
 
 Pago vía Llave Bre-B: {LLAVE_PAGO}
 Destino: {BANCO}.
 
-DÉCIMA PRIMERA. DOMICILIO Y LEY APLICABLE
-Se firma en Medellín el {datetime.now().strftime("%d/%m/%Y")}.
-
-EL CONTRATANTE
-
-_____________________________
-
-{CONSULTOR_NOMBRE}
-EL CONSULTOR
+Firmado en Medellín el {datetime.now().strftime("%d/%m/%Y")}.
 """
 
-def generar_pdf(data):
-    file_path = f"contratos_generados/Contrato_{data['consecutivo']:04d}.pdf"
-    doc = SimpleDocTemplate(file_path)
+    path = f"contratos_generados/Contrato_{data['consecutivo']:04d}.pdf"
+    doc = SimpleDocTemplate(path)
     styles = getSampleStyleSheet()
     elements = []
-
-    texto = generar_contrato_texto(data)
     elements.append(Paragraph(texto.replace("\n", "<br/>"), styles["Normal"]))
     doc.build(elements)
-    return file_path
+    return path
 
-# ==============================
+# =====================================
 # SESIÓN
-# ==============================
+# =====================================
 
 if "logged" not in st.session_state:
     st.session_state.logged = False
 
-# ==============================
+# =====================================
 # INTERFAZ
-# ==============================
+# =====================================
 
 st.title("📁 Sistema de Gestión Contractual")
 
@@ -156,9 +140,9 @@ if "show_login" in st.session_state and not st.session_state.logged:
         else:
             st.error("Clave incorrecta")
 
-# ==============================
+# =====================================
 # CONSULTA PÚBLICA
-# ==============================
+# =====================================
 
 st.subheader("🔎 Consulta de Proceso")
 
@@ -166,19 +150,19 @@ doc_busqueda = st.text_input("Ingrese su número de documento")
 
 if st.button("Consultar proceso"):
     token = generar_token(doc_busqueda)
-    caso = c.execute("SELECT estado, tipo_tramite, accionado FROM casos WHERE token=?", (token,)).fetchone()
+    caso = c.execute("SELECT * FROM casos WHERE token=?", (token,)).fetchone()
 
     if caso:
         st.success("Proceso encontrado")
-        st.write("Estado:", caso[0])
-        st.write("Trámite:", caso[1])
-        st.write("Entidad:", caso[2])
+        st.write("Estado:", caso["estado"])
+        st.write("Trámite:", caso["tipo_tramite"])
+        st.write("Entidad:", caso["accionado"])
     else:
         st.error("No se encontró proceso asociado.")
 
-# ==============================
+# =====================================
 # PANEL DE GESTIÓN
-# ==============================
+# =====================================
 
 if st.session_state.logged:
 
@@ -222,7 +206,7 @@ if st.session_state.logged:
             ))
             conn.commit()
 
-            pdf_path = generar_pdf({
+            pdf = generar_pdf({
                 "consecutivo": consecutivo,
                 "nombre": nombre,
                 "tipo_doc": tipo_doc,
@@ -232,12 +216,8 @@ if st.session_state.logged:
                 "valor": valor
             })
 
-            with open(pdf_path, "rb") as f:
-                st.download_button(
-                    "📄 Descargar Contrato",
-                    f,
-                    file_name=f"Contrato_{consecutivo:04d}.pdf"
-                )
+            with open(pdf, "rb") as f:
+                st.download_button("📄 Descargar Contrato", f, file_name=os.path.basename(pdf))
 
             st.success("Contrato generado correctamente")
 
@@ -246,34 +226,42 @@ if st.session_state.logged:
         casos = c.execute("SELECT * FROM casos ORDER BY consecutivo DESC").fetchall()
 
         for caso in casos:
-            with st.expander(f"Contrato {caso[1]:04d} - {caso[2]}"):
-                st.write("Estado actual:", caso[8])
+            consecutivo = caso["consecutivo"] or 0
+
+            with st.expander(f"Contrato {int(consecutivo):04d} - {caso['nombre']}"):
+
+                st.write("Estado actual:", caso["estado"])
+
                 nuevo_estado = st.selectbox(
                     "Actualizar Estado",
                     ["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"],
-                    index=["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"].index(caso[8]),
-                    key=caso[0]
+                    index=["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"].index(caso["estado"]),
+                    key=caso["id"]
                 )
-                if st.button("Guardar Estado", key=caso[0]+"estado"):
-                    c.execute("UPDATE casos SET estado=? WHERE id=?", (nuevo_estado, caso[0]))
+
+                if st.button("Guardar Estado", key="estado"+caso["id"]):
+                    c.execute("UPDATE casos SET estado=? WHERE id=?", (nuevo_estado, caso["id"]))
                     conn.commit()
                     st.success("Estado actualizado")
 
                 st.subheader("Subir contrato firmado")
-                archivo = st.file_uploader("Adjuntar PDF firmado", type=["pdf"], key=caso[0])
+                archivo = st.file_uploader("Adjuntar PDF firmado", type=["pdf"], key="file"+caso["id"])
+
                 if archivo:
-                    with open(f"contratos_firmados/{caso[0]}.pdf", "wb") as f:
+                    with open(f"contratos_firmados/{caso['id']}.pdf", "wb") as f:
                         f.write(archivo.read())
                     st.success("Contrato firmado guardado")
 
                 st.subheader("Avances")
-                avance = st.text_area("Nuevo avance", key=caso[0]+"avance")
-                if st.button("Guardar Avance", key=caso[0]+"btn"):
+                nuevo_avance = st.text_area("Nuevo avance", key="avance"+caso["id"])
+
+                if st.button("Guardar Avance", key="btn"+caso["id"]):
                     c.execute("INSERT INTO avances (caso_id, descripcion, fecha) VALUES (?, ?, ?)",
-                              (caso[0], avance, datetime.now().strftime("%Y-%m-%d")))
+                              (caso["id"], nuevo_avance, datetime.now().strftime("%Y-%m-%d")))
                     conn.commit()
                     st.success("Avance guardado")
 
-                avances = c.execute("SELECT descripcion, fecha FROM avances WHERE caso_id=?", (caso[0],)).fetchall()
+                avances = c.execute("SELECT * FROM avances WHERE caso_id=?", (caso["id"],)).fetchall()
+
                 for a in avances:
-                    st.write(f"{a[1]} - {a[0]}")
+                    st.write(f"{a['fecha']} - {a['descripcion']}")
