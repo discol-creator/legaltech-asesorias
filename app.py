@@ -3,13 +3,14 @@ import sqlite3
 import os
 import hashlib
 from datetime import datetime
+from io import BytesIO
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 
-# =====================================
-# CONFIGURACIÓN
-# =====================================
+# ==========================
+# CONFIG
+# ==========================
 
 st.set_page_config(page_title="LegalTech Gestión Contractual", layout="wide")
 
@@ -19,12 +20,11 @@ LLAVE_PAGO = "@francisbarragan"
 BANCO = "Banco de Bogotá"
 CLAVE_ADMIN = "Francis2026Secure"
 
-os.makedirs("contratos_generados", exist_ok=True)
 os.makedirs("contratos_firmados", exist_ok=True)
 
-# =====================================
+# ==========================
 # BASE DE DATOS ESTABLE
-# =====================================
+# ==========================
 
 conn = sqlite3.connect("database.db", check_same_thread=False)
 conn.row_factory = sqlite3.Row
@@ -56,22 +56,18 @@ CREATE TABLE IF NOT EXISTS avances (
 
 conn.commit()
 
-# =====================================
+# ==========================
 # FUNCIONES
-# =====================================
+# ==========================
 
 ESTADOS = ["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"]
 
 def generar_token(documento):
     return hashlib.sha256(documento.encode()).hexdigest()
 
-def generar_pdf(data):
-
-    anticipo = data["valor"] // 2
-    saldo = data["valor"] - anticipo
-
-    path = f"contratos_generados/Contrato_{data['consecutivo']}.pdf"
-    doc = SimpleDocTemplate(path)
+def generar_pdf_en_memoria(data):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
 
     style_bold = ParagraphStyle(
@@ -81,6 +77,9 @@ def generar_pdf(data):
     )
 
     elements = []
+
+    anticipo = data["valor"] // 2
+    saldo = data["valor"] - anticipo
 
     # Título
     elements.append(Paragraph(
@@ -135,18 +134,19 @@ def generar_pdf(data):
         elements.append(Spacer(1, 0.15 * inch))
 
     doc.build(elements)
-    return path
+    buffer.seek(0)
+    return buffer
 
-# =====================================
+# ==========================
 # SESIÓN
-# =====================================
+# ==========================
 
 if "logged" not in st.session_state:
     st.session_state.logged = False
 
-# =====================================
-# INTERFAZ PRINCIPAL
-# =====================================
+# ==========================
+# INTERFAZ
+# ==========================
 
 st.title("📁 Sistema de Gestión Contractual")
 
@@ -169,9 +169,9 @@ if "show_login" in st.session_state and not st.session_state.logged:
         else:
             st.error("Clave incorrecta")
 
-# =====================================
+# ==========================
 # CONSULTA PÚBLICA
-# =====================================
+# ==========================
 
 st.subheader("🔎 Consulta de Proceso")
 
@@ -189,9 +189,9 @@ if st.button("Consultar"):
     else:
         st.error("No se encontró proceso")
 
-# =====================================
+# ==========================
 # PANEL DE GESTIÓN
-# =====================================
+# ==========================
 
 if st.session_state.logged:
 
@@ -219,6 +219,7 @@ if st.session_state.logged:
         valor = st.number_input("Valor (COP)", min_value=0, step=50000)
 
         if st.button("Generar Contrato"):
+
             token = generar_token(documento)
 
             c.execute("""
@@ -241,7 +242,7 @@ if st.session_state.logged:
             conn.commit()
             consecutivo = c.lastrowid
 
-            pdf = generar_pdf({
+            pdf_buffer = generar_pdf_en_memoria({
                 "consecutivo": consecutivo,
                 "nombre": nombre,
                 "tipo_doc": tipo_doc,
@@ -251,8 +252,12 @@ if st.session_state.logged:
                 "valor": valor
             })
 
-            with open(pdf, "rb") as f:
-                st.download_button("📄 Descargar Contrato", f)
+            st.download_button(
+                label="📄 Descargar Contrato",
+                data=pdf_buffer,
+                file_name=f"Contrato_{consecutivo}.pdf",
+                mime="application/pdf"
+            )
 
             st.success("Contrato generado correctamente")
 
