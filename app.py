@@ -1,15 +1,14 @@
 import streamlit as st
 import sqlite3
-import uuid
 import os
 import hashlib
 from datetime import datetime
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ==============================
-# CONFIGURACIÓN
-# ==============================
+# ==========================
+# CONFIG
+# ==========================
 
 st.set_page_config(page_title="LegalTech Gestión", layout="wide")
 
@@ -22,9 +21,9 @@ CLAVE_ADMIN = "Francis2026Secure"
 os.makedirs("contratos_generados", exist_ok=True)
 os.makedirs("contratos_firmados", exist_ok=True)
 
-# ==============================
-# BASE DE DATOS SEGURA
-# ==============================
+# ==========================
+# BASE DE DATOS ROBUSTA
+# ==========================
 
 conn = sqlite3.connect("database.db", check_same_thread=False)
 conn.row_factory = sqlite3.Row
@@ -32,8 +31,7 @@ c = conn.cursor()
 
 c.execute("""
 CREATE TABLE IF NOT EXISTS casos (
-    id TEXT PRIMARY KEY,
-    consecutivo INTEGER,
+    consecutivo INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT,
     tipo_doc TEXT,
     documento TEXT,
@@ -49,7 +47,7 @@ CREATE TABLE IF NOT EXISTS casos (
 c.execute("""
 CREATE TABLE IF NOT EXISTS avances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    caso_id TEXT,
+    caso_consecutivo INTEGER,
     descripcion TEXT,
     fecha TEXT
 )
@@ -57,26 +55,17 @@ CREATE TABLE IF NOT EXISTS avances (
 
 conn.commit()
 
-# ==============================
+# ==========================
 # FUNCIONES
-# ==============================
+# ==========================
 
-ESTADOS_VALIDOS = ["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"]
-
-def estado_seguro(estado):
-    if estado in ESTADOS_VALIDOS:
-        return estado
-    return "Pendiente Firma"
-
-def obtener_consecutivo():
-    c.execute("SELECT MAX(consecutivo) as maximo FROM casos")
-    row = c.fetchone()
-    return 1 if row["maximo"] is None else row["maximo"] + 1
+ESTADOS = ["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"]
 
 def generar_token(documento):
     return hashlib.sha256(documento.encode()).hexdigest()
 
 def generar_pdf(data):
+
     anticipo = data["valor"] // 2
     saldo = data["valor"] - anticipo
 
@@ -116,16 +105,16 @@ Firmado en Medellín el {datetime.now().strftime("%d/%m/%Y")}
     doc.build([Paragraph(texto.replace("\n", "<br/>"), styles["Normal"])])
     return path
 
-# ==============================
+# ==========================
 # SESIÓN
-# ==============================
+# ==========================
 
 if "logged" not in st.session_state:
     st.session_state.logged = False
 
-# ==============================
+# ==========================
 # INTERFAZ
-# ==============================
+# ==========================
 
 st.title("📁 Sistema de Gestión Contractual")
 
@@ -148,9 +137,9 @@ if "show_login" in st.session_state and not st.session_state.logged:
         else:
             st.error("Clave incorrecta")
 
-# ==============================
+# ==========================
 # CONSULTA PÚBLICA
-# ==============================
+# ==========================
 
 st.subheader("🔎 Consulta de Proceso")
 
@@ -162,15 +151,15 @@ if st.button("Consultar"):
 
     if caso:
         st.success("Proceso encontrado")
-        st.write("Estado:", estado_seguro(caso["estado"]))
+        st.write("Estado:", caso["estado"])
         st.write("Trámite:", caso["tipo_tramite"])
         st.write("Entidad:", caso["accionado"])
     else:
         st.error("No se encontró proceso")
 
-# ==============================
+# ==========================
 # PANEL DE GESTIÓN
-# ==============================
+# ==========================
 
 if st.session_state.logged:
 
@@ -181,6 +170,7 @@ if st.session_state.logged:
 
     # CREAR CASO
     with tab1:
+
         nombre = st.text_input("Nombre Completo")
         tipo_doc = st.selectbox("Tipo Documento", [
             "Cédula de Ciudadanía",
@@ -198,15 +188,15 @@ if st.session_state.logged:
         valor = st.number_input("Valor (COP)", min_value=0, step=50000)
 
         if st.button("Generar Contrato"):
-            consecutivo = obtener_consecutivo()
-            caso_id = str(uuid.uuid4())
+
             token = generar_token(documento)
 
             c.execute("""
-            INSERT INTO casos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO casos
+            (nombre, tipo_doc, documento, tipo_tramite,
+             accionado, valor, estado, token, fecha)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                caso_id,
-                consecutivo,
                 nombre,
                 tipo_doc,
                 documento,
@@ -217,7 +207,10 @@ if st.session_state.logged:
                 token,
                 datetime.now().strftime("%Y-%m-%d")
             ))
+
             conn.commit()
+
+            consecutivo = c.lastrowid  # 🔥 SQLite genera automáticamente
 
             pdf = generar_pdf({
                 "consecutivo": consecutivo,
@@ -239,58 +232,61 @@ if st.session_state.logged:
 
         casos = c.execute("SELECT * FROM casos ORDER BY consecutivo DESC").fetchall()
 
-        for caso in casos:
+        if not casos:
+            st.info("No hay casos registrados")
+        else:
+            for caso in casos:
 
-            estado_actual = estado_seguro(caso["estado"])
+                with st.expander(f"Contrato {caso['consecutivo']} - {caso['nombre']}"):
 
-            with st.expander(f"Contrato {caso['consecutivo']} - {caso['nombre']}"):
+                    st.write("Estado:", caso["estado"])
 
-                st.write("Estado actual:", estado_actual)
-
-                nuevo_estado = st.selectbox(
-                    "Actualizar Estado",
-                    ESTADOS_VALIDOS,
-                    key="estado"+caso["id"]
-                )
-
-                if st.button("Guardar Estado", key="btnestado"+caso["id"]):
-                    c.execute(
-                        "UPDATE casos SET estado=? WHERE id=?",
-                        (nuevo_estado, caso["id"])
+                    nuevo_estado = st.selectbox(
+                        "Actualizar Estado",
+                        ESTADOS,
+                        key="estado"+str(caso["consecutivo"])
                     )
-                    conn.commit()
-                    st.success("Estado actualizado")
 
-                st.subheader("Subir contrato firmado")
-                archivo = st.file_uploader(
-                    "PDF firmado",
-                    type=["pdf"],
-                    key="file"+caso["id"]
-                )
+                    if st.button("Guardar Estado", key="btnestado"+str(caso["consecutivo"])):
+                        c.execute(
+                            "UPDATE casos SET estado=? WHERE consecutivo=?",
+                            (nuevo_estado, caso["consecutivo"])
+                        )
+                        conn.commit()
+                        st.success("Estado actualizado")
 
-                if archivo:
-                    with open(f"contratos_firmados/{caso['id']}.pdf", "wb") as f:
-                        f.write(archivo.read())
-                    st.success("Contrato firmado guardado")
+                    st.subheader("Subir contrato firmado")
 
-                st.subheader("Avances")
-                nuevo_avance = st.text_area(
-                    "Nuevo avance",
-                    key="avance"+caso["id"]
-                )
-
-                if st.button("Guardar Avance", key="btnavance"+caso["id"]):
-                    c.execute(
-                        "INSERT INTO avances (caso_id, descripcion, fecha) VALUES (?, ?, ?)",
-                        (caso["id"], nuevo_avance, datetime.now().strftime("%Y-%m-%d"))
+                    archivo = st.file_uploader(
+                        "PDF firmado",
+                        type=["pdf"],
+                        key="file"+str(caso["consecutivo"])
                     )
-                    conn.commit()
-                    st.success("Avance guardado")
 
-                avances = c.execute(
-                    "SELECT * FROM avances WHERE caso_id=?",
-                    (caso["id"],)
-                ).fetchall()
+                    if archivo:
+                        with open(f"contratos_firmados/{caso['consecutivo']}.pdf", "wb") as f:
+                            f.write(archivo.read())
+                        st.success("Contrato firmado guardado")
 
-                for a in avances:
-                    st.write(f"{a['fecha']} - {a['descripcion']}")
+                    st.subheader("Avances")
+
+                    nuevo_avance = st.text_area(
+                        "Nuevo avance",
+                        key="avance"+str(caso["consecutivo"])
+                    )
+
+                    if st.button("Guardar Avance", key="btnavance"+str(caso["consecutivo"])):
+                        c.execute(
+                            "INSERT INTO avances (caso_consecutivo, descripcion, fecha) VALUES (?, ?, ?)",
+                            (caso["consecutivo"], nuevo_avance, datetime.now().strftime("%Y-%m-%d"))
+                        )
+                        conn.commit()
+                        st.success("Avance guardado")
+
+                    avances = c.execute(
+                        "SELECT * FROM avances WHERE caso_consecutivo=?",
+                        (caso["consecutivo"],)
+                    ).fetchall()
+
+                    for a in avances:
+                        st.write(f"{a['fecha']} - {a['descripcion']}")
