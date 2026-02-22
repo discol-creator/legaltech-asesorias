@@ -9,10 +9,13 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 
 # ==========================
-# CONFIGURACIÓN
+# CONFIGURACIÓN GENERAL
 # ==========================
 
-st.set_page_config(page_title="LegalTech - Gestión Contractual", layout="wide")
+st.set_page_config(
+    page_title="LegalTech - Gestión Contractual",
+    layout="wide",
+)
 
 CONSULTOR_NOMBRE = "FRANCISCO JOSÉ BARRAGÁN BARRAGÁN"
 CONSULTOR_DOC = "CE 7354548"
@@ -21,7 +24,6 @@ BANCO = "Banco de Bogotá"
 CLAVE_ADMIN = "Francis2026Secure"
 
 os.makedirs("contratos_generados", exist_ok=True)
-os.makedirs("contratos_firmados", exist_ok=True)
 
 # ==========================
 # BASE DE DATOS ROBUSTA
@@ -30,7 +32,6 @@ os.makedirs("contratos_firmados", exist_ok=True)
 conn = sqlite3.connect("database.db", check_same_thread=False)
 c = conn.cursor()
 
-# Crear tabla básica
 c.execute("""
 CREATE TABLE IF NOT EXISTS casos (
     id TEXT PRIMARY KEY,
@@ -42,40 +43,31 @@ CREATE TABLE IF NOT EXISTS casos (
     valor INTEGER,
     estado TEXT,
     token TEXT,
-    fecha TEXT
-)
-""")
-
-# Verificar si existe columna consecutivo
-c.execute("PRAGMA table_info(casos)")
-columns = [col[1] for col in c.fetchall()]
-
-if "consecutivo" not in columns:
-    c.execute("ALTER TABLE casos ADD COLUMN consecutivo INTEGER")
-    conn.commit()
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS avances (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    caso_id TEXT,
-    descripcion TEXT,
-    fecha TEXT
+    fecha TEXT,
+    consecutivo INTEGER
 )
 """)
 
 conn.commit()
+
+# Reparar consecutivos NULL si existen
+c.execute("SELECT id FROM casos WHERE consecutivo IS NULL")
+null_cases = c.fetchall()
+
+if null_cases:
+    contador = 1
+    for caso in null_cases:
+        c.execute("UPDATE casos SET consecutivo=? WHERE id=?", (contador, caso[0]))
+        contador += 1
+    conn.commit()
 
 # ==========================
 # FUNCIONES
 # ==========================
 
 def obtener_consecutivo():
-    try:
-        c.execute("SELECT MAX(consecutivo) FROM casos")
-        result = c.fetchone()[0]
-        return 1 if result is None else result + 1
-    except:
-        return 1
+    c.execute("SELECT COALESCE(MAX(consecutivo),0) FROM casos")
+    return c.fetchone()[0] + 1
 
 def generar_token(documento):
     return hashlib.sha256(documento.encode()).hexdigest()
@@ -86,10 +78,12 @@ def generar_pdf(data):
     styles = getSampleStyleSheet()
     elements = []
 
-    elements.append(Paragraph(
-        f"<b>CONTRATO No. {data['consecutivo']:04d}-2026</b>",
-        styles['Title']
-    ))
+    elements.append(
+        Paragraph(
+            f"<b>CONTRATO No. {data['consecutivo']:04d}-2026</b>",
+            styles["Title"],
+        )
+    )
     elements.append(Spacer(1, 0.3 * inch))
 
     texto = f"""
@@ -98,11 +92,12 @@ CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA
 Entre:
 
 {data['nombre']}, identificado(a) con {data['tipo_doc']} No. {data['documento']}, 
-EL CONTRATANTE,
+quien se denominará EL CONTRATANTE,
 
 y
 
-{CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC}, EL CONSULTOR.
+{CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC}, 
+quien se denominará EL CONSULTOR.
 
 PRIMERA. OBJETO
 {data['tipo_tramite']} contra {data['accionado']}.
@@ -123,19 +118,19 @@ Firmado en Medellín el {datetime.now().strftime("%d/%m/%Y")}.
     return file_path
 
 # ==========================
-# SESIÓN SIMPLE
+# SESIÓN
 # ==========================
 
 if "logged" not in st.session_state:
     st.session_state.logged = False
 
 # ==========================
-# INTERFAZ PRINCIPAL
+# CABECERA PRINCIPAL
 # ==========================
 
-st.title("Gestión Contractual")
+st.title("📁 Sistema de Gestión Contractual")
 
-col1, col2 = st.columns([3,1])
+col1, col2 = st.columns([4,1])
 
 with col2:
     if not st.session_state.logged:
@@ -145,7 +140,7 @@ with col2:
         if st.button("Cerrar sesión"):
             st.session_state.logged = False
 
-# LOGIN
+# LOGIN SIMPLE
 if "show_login" in st.session_state and not st.session_state.logged:
     clave = st.text_input("Clave de acceso", type="password")
     if st.button("Ingresar"):
@@ -156,14 +151,14 @@ if "show_login" in st.session_state and not st.session_state.logged:
             st.error("Clave incorrecta")
 
 # ==========================
-# CONSULTA PÚBLICA (SIEMPRE VISIBLE)
+# CONSULTA PÚBLICA
 # ==========================
 
-st.header("Consulta de Proceso")
+st.subheader("🔎 Consulta de Proceso")
 
 doc_busqueda = st.text_input("Ingrese su número de documento")
 
-if st.button("Consultar"):
+if st.button("Consultar proceso"):
     token = generar_token(doc_busqueda)
     caso = c.execute("SELECT * FROM casos WHERE token=?", (token,)).fetchone()
 
@@ -176,79 +171,103 @@ if st.button("Consultar"):
         st.error("No se encontró proceso asociado.")
 
 # ==========================
-# PANEL DE GESTIÓN (SOLO SI LOGEADO)
+# PANEL DE GESTIÓN
 # ==========================
 
 if st.session_state.logged:
 
     st.divider()
-    st.header("Panel de Gestión")
+    st.header("⚙️ Panel de Gestión")
 
-    st.subheader("Crear Nuevo Caso")
+    tab1, tab2 = st.tabs(["➕ Crear Caso", "📂 Casos Registrados"])
 
-    nombre = st.text_input("Nombre Completo")
-    tipo_doc = st.selectbox("Tipo Documento", [
-        "Cédula de Ciudadanía",
-        "Cédula de Extranjería",
-        "Pasaporte"
-    ])
-    documento = st.text_input("Número Documento")
-    tipo_tramite = st.selectbox("Tipo de Trámite", [
-        "Solicitud de Ajustes Razonables",
-        "Reclamación reporte negativo",
-        "Derecho de Petición",
-        "Otro"
-    ])
-    accionado = st.text_input("Entidad Accionada")
-    valor = st.number_input("Valor (COP)", min_value=0, step=50000)
+    # ========= CREAR CASO =========
+    with tab1:
+        st.subheader("Nuevo Caso")
 
-    if st.button("Generar Contrato"):
-        consecutivo = obtener_consecutivo()
-        caso_id = str(uuid.uuid4())
-        token = generar_token(documento)
+        colA, colB = st.columns(2)
 
-        c.execute("""
-        INSERT INTO casos
-        (id, nombre, tipo_doc, documento, tipo_tramite, accionado, valor, estado, token, fecha, consecutivo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            caso_id,
-            nombre,
-            tipo_doc,
-            documento,
-            tipo_tramite,
-            accionado,
-            valor,
-            "Pendiente Firma",
-            token,
-            datetime.now().strftime("%Y-%m-%d"),
-            consecutivo
-        ))
-        conn.commit()
+        with colA:
+            nombre = st.text_input("Nombre Completo")
+            tipo_doc = st.selectbox("Tipo Documento", [
+                "Cédula de Ciudadanía",
+                "Cédula de Extranjería",
+                "Pasaporte"
+            ])
+            documento = st.text_input("Número Documento")
 
-        pdf_path = generar_pdf({
-            "consecutivo": consecutivo,
-            "nombre": nombre,
-            "tipo_doc": tipo_doc,
-            "documento": documento,
-            "tipo_tramite": tipo_tramite,
-            "accionado": accionado,
-            "valor": valor
-        })
+        with colB:
+            tipo_tramite = st.selectbox("Tipo de Trámite", [
+                "Solicitud de Ajustes Razonables",
+                "Reclamación reporte negativo",
+                "Derecho de Petición",
+                "Otro"
+            ])
+            accionado = st.text_input("Entidad Accionada")
+            valor = st.number_input("Valor (COP)", min_value=0, step=50000)
 
-        with open(pdf_path, "rb") as f:
-            st.download_button(
-                "Descargar Contrato",
-                f,
-                file_name=f"Contrato_{consecutivo:04d}.pdf"
-            )
+        if st.button("Generar Contrato"):
+            consecutivo = obtener_consecutivo()
+            caso_id = str(uuid.uuid4())
+            token = generar_token(documento)
 
-        st.success("Contrato generado correctamente")
+            c.execute("""
+            INSERT INTO casos
+            (id, nombre, tipo_doc, documento, tipo_tramite, accionado,
+             valor, estado, token, fecha, consecutivo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                caso_id,
+                nombre,
+                tipo_doc,
+                documento,
+                tipo_tramite,
+                accionado,
+                valor,
+                "Pendiente Firma",
+                token,
+                datetime.now().strftime("%Y-%m-%d"),
+                consecutivo
+            ))
+            conn.commit()
 
-    # LISTADO
-    st.subheader("Casos Registrados")
+            pdf_path = generar_pdf({
+                "consecutivo": consecutivo,
+                "nombre": nombre,
+                "tipo_doc": tipo_doc,
+                "documento": documento,
+                "tipo_tramite": tipo_tramite,
+                "accionado": accionado,
+                "valor": valor
+            })
 
-    casos = c.execute("SELECT consecutivo, nombre, estado FROM casos ORDER BY consecutivo DESC").fetchall()
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    "📄 Descargar Contrato",
+                    f,
+                    file_name=f"Contrato_{consecutivo:04d}.pdf"
+                )
 
-    for caso in casos:
-        st.write(f"Contrato {caso[0]:04d} - {caso[1]} - {caso[2]}")
+            st.success("Contrato generado correctamente")
+
+    # ========= LISTADO =========
+    with tab2:
+        st.subheader("Listado de Casos")
+
+        casos = c.execute("""
+        SELECT consecutivo, nombre, estado, valor
+        FROM casos
+        ORDER BY COALESCE(consecutivo,0) DESC
+        """).fetchall()
+
+        if casos:
+            for caso in casos:
+                consecutivo = caso[0] if caso[0] else 0
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([1,3,2,2])
+                    col1.write(f"{int(consecutivo):04d}")
+                    col2.write(caso[1])
+                    col3.write(caso[2])
+                    col4.write(f"${caso[3]:,} COP")
+        else:
+            st.info("No hay casos registrados.")
