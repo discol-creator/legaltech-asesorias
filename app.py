@@ -3,14 +3,15 @@ import sqlite3
 import os
 import hashlib
 from datetime import datetime
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
 
-# ==========================
-# CONFIG
-# ==========================
+# =====================================
+# CONFIGURACIÓN
+# =====================================
 
-st.set_page_config(page_title="LegalTech Gestión", layout="wide")
+st.set_page_config(page_title="LegalTech Gestión Contractual", layout="wide")
 
 CONSULTOR_NOMBRE = "FRANCISCO JOSÉ BARRAGÁN BARRAGÁN"
 CONSULTOR_DOC = "CE 7354548"
@@ -21,9 +22,9 @@ CLAVE_ADMIN = "Francis2026Secure"
 os.makedirs("contratos_generados", exist_ok=True)
 os.makedirs("contratos_firmados", exist_ok=True)
 
-# ==========================
-# BASE DE DATOS ROBUSTA
-# ==========================
+# =====================================
+# BASE DE DATOS ESTABLE
+# =====================================
 
 conn = sqlite3.connect("database.db", check_same_thread=False)
 conn.row_factory = sqlite3.Row
@@ -47,7 +48,7 @@ CREATE TABLE IF NOT EXISTS casos (
 c.execute("""
 CREATE TABLE IF NOT EXISTS avances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    caso_consecutivo INTEGER,
+    consecutivo INTEGER,
     descripcion TEXT,
     fecha TEXT
 )
@@ -55,9 +56,9 @@ CREATE TABLE IF NOT EXISTS avances (
 
 conn.commit()
 
-# ==========================
+# =====================================
 # FUNCIONES
-# ==========================
+# =====================================
 
 ESTADOS = ["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"]
 
@@ -69,52 +70,83 @@ def generar_pdf(data):
     anticipo = data["valor"] // 2
     saldo = data["valor"] - anticipo
 
-    texto = f"""
-CONTRATO No. {data['consecutivo']}-2026
-
-CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA
-
-Entre:
-
-{data['nombre']}, identificado(a) con {data['tipo_doc']} No. {data['documento']},
-quien se denomina EL CONTRATANTE,
-
-y
-
-{CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC},
-quien se denomina EL CONSULTOR.
-
-OBJETO:
-{data['tipo_tramite']} contra {data['accionado']}.
-
-VALOR:
-${data['valor']:,} COP.
-
-Anticipo 50%: ${anticipo:,} COP
-Saldo 50%: ${saldo:,} COP
-
-Pago vía Llave Bre-B: {LLAVE_PAGO}
-Destino: {BANCO}
-
-Firmado en Medellín el {datetime.now().strftime("%d/%m/%Y")}
-"""
-
     path = f"contratos_generados/Contrato_{data['consecutivo']}.pdf"
     doc = SimpleDocTemplate(path)
     styles = getSampleStyleSheet()
-    doc.build([Paragraph(texto.replace("\n", "<br/>"), styles["Normal"])])
+
+    style_bold = ParagraphStyle(
+        'Bold',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold'
+    )
+
+    elements = []
+
+    # Título
+    elements.append(Paragraph(
+        f"<b>CONTRATO No. {data['consecutivo']}-2026</b>",
+        style_bold
+    ))
+    elements.append(Spacer(1, 0.3 * inch))
+
+    elements.append(Paragraph(
+        "<b>CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA</b>",
+        style_bold
+    ))
+    elements.append(Spacer(1, 0.3 * inch))
+
+    cuerpo = [
+        "Entre los suscritos a saber:",
+        "",
+        f"{data['nombre']}, mayor de edad, identificado(a) con {data['tipo_doc']} No. {data['documento']}, quien actúa en nombre propio y para efectos del presente contrato se denominará EL CONTRATANTE,",
+        "",
+        f"y {CONSULTOR_NOMBRE}, mayor de edad, identificado con {CONSULTOR_DOC}, profesional con Maestría en Innovación Social, consultor en accesibilidad y gestión estratégica, inscrito en el RUT bajo la actividad económica 7490, quien para efectos del presente contrato se denominará EL CONSULTOR,",
+        "",
+        "se celebra el presente Contrato de Prestación de Servicios de Consultoría Técnica y Estratégica, el cual se regirá por las siguientes cláusulas:",
+        "",
+        "<b>PRIMERA. OBJETO</b>",
+        f"EL CONSULTOR se obliga a prestar a favor de EL CONTRATANTE servicios de asesoría técnica y estratégica para {data['tipo_tramite']} contra {data['accionado']}.",
+        "",
+        "<b>SEGUNDA. NATURALEZA DEL SERVICIO</b>",
+        "Las partes dejan expresa constancia de que el presente contrato es de naturaleza civil y de prestación de servicios independientes.",
+        "EL CONSULTOR no es abogado titulado, no ejercerá representación judicial ni asumirá defensa jurídica.",
+        "",
+        "<b>CUARTA. VALOR Y FORMA DE PAGO</b>",
+        f"El valor total de la consultoría es de ${data['valor']:,} COP.",
+        f"Anticipo equivalente al 50%: ${anticipo:,} COP.",
+        f"Saldo equivalente al 50%: ${saldo:,} COP.",
+        f"Pago vía Llave Bre-B: {LLAVE_PAGO}. Destino: {BANCO}.",
+        "",
+        "<b>DÉCIMA PRIMERA. DOMICILIO Y LEY APLICABLE</b>",
+        "El presente contrato se rige por las leyes de la República de Colombia y fija como domicilio contractual la ciudad de Medellín.",
+        "",
+        f"Para constancia, se firma en Medellín el {datetime.now().strftime('%d/%m/%Y')}.",
+        "",
+        "______________________________",
+        "EL CONTRATANTE",
+        "",
+        "______________________________",
+        CONSULTOR_NOMBRE,
+        "EL CONSULTOR"
+    ]
+
+    for linea in cuerpo:
+        elements.append(Paragraph(linea, styles["Normal"]))
+        elements.append(Spacer(1, 0.15 * inch))
+
+    doc.build(elements)
     return path
 
-# ==========================
+# =====================================
 # SESIÓN
-# ==========================
+# =====================================
 
 if "logged" not in st.session_state:
     st.session_state.logged = False
 
-# ==========================
-# INTERFAZ
-# ==========================
+# =====================================
+# INTERFAZ PRINCIPAL
+# =====================================
 
 st.title("📁 Sistema de Gestión Contractual")
 
@@ -129,7 +161,7 @@ with col2:
             st.session_state.logged = False
 
 if "show_login" in st.session_state and not st.session_state.logged:
-    clave = st.text_input("Clave", type="password")
+    clave = st.text_input("Clave de acceso", type="password")
     if st.button("Ingresar"):
         if clave == CLAVE_ADMIN:
             st.session_state.logged = True
@@ -137,9 +169,9 @@ if "show_login" in st.session_state and not st.session_state.logged:
         else:
             st.error("Clave incorrecta")
 
-# ==========================
+# =====================================
 # CONSULTA PÚBLICA
-# ==========================
+# =====================================
 
 st.subheader("🔎 Consulta de Proceso")
 
@@ -157,9 +189,9 @@ if st.button("Consultar"):
     else:
         st.error("No se encontró proceso")
 
-# ==========================
+# =====================================
 # PANEL DE GESTIÓN
-# ==========================
+# =====================================
 
 if st.session_state.logged:
 
@@ -170,7 +202,6 @@ if st.session_state.logged:
 
     # CREAR CASO
     with tab1:
-
         nombre = st.text_input("Nombre Completo")
         tipo_doc = st.selectbox("Tipo Documento", [
             "Cédula de Ciudadanía",
@@ -188,7 +219,6 @@ if st.session_state.logged:
         valor = st.number_input("Valor (COP)", min_value=0, step=50000)
 
         if st.button("Generar Contrato"):
-
             token = generar_token(documento)
 
             c.execute("""
@@ -209,8 +239,7 @@ if st.session_state.logged:
             ))
 
             conn.commit()
-
-            consecutivo = c.lastrowid  # 🔥 SQLite genera automáticamente
+            consecutivo = c.lastrowid
 
             pdf = generar_pdf({
                 "consecutivo": consecutivo,
@@ -229,64 +258,60 @@ if st.session_state.logged:
 
     # GESTIONAR CASOS
     with tab2:
-
         casos = c.execute("SELECT * FROM casos ORDER BY consecutivo DESC").fetchall()
 
-        if not casos:
-            st.info("No hay casos registrados")
-        else:
-            for caso in casos:
+        for caso in casos:
 
-                with st.expander(f"Contrato {caso['consecutivo']} - {caso['nombre']}"):
+            with st.expander(f"Contrato {caso['consecutivo']} - {caso['nombre']}"):
 
-                    st.write("Estado:", caso["estado"])
+                st.write("Estado:", caso["estado"])
 
-                    nuevo_estado = st.selectbox(
-                        "Actualizar Estado",
-                        ESTADOS,
-                        key="estado"+str(caso["consecutivo"])
+                nuevo_estado = st.selectbox(
+                    "Actualizar Estado",
+                    ESTADOS,
+                    key=f"estado_{caso['consecutivo']}"
+                )
+
+                if st.button("Guardar Estado", key=f"btnestado_{caso['consecutivo']}"):
+                    c.execute(
+                        "UPDATE casos SET estado=? WHERE consecutivo=?",
+                        (nuevo_estado, caso["consecutivo"])
                     )
+                    conn.commit()
+                    st.success("Estado actualizado")
 
-                    if st.button("Guardar Estado", key="btnestado"+str(caso["consecutivo"])):
-                        c.execute(
-                            "UPDATE casos SET estado=? WHERE consecutivo=?",
-                            (nuevo_estado, caso["consecutivo"])
-                        )
-                        conn.commit()
-                        st.success("Estado actualizado")
+                st.subheader("Subir contrato firmado")
 
-                    st.subheader("Subir contrato firmado")
+                archivo = st.file_uploader(
+                    "PDF firmado",
+                    type=["pdf"],
+                    key=f"file_{caso['consecutivo']}"
+                )
 
-                    archivo = st.file_uploader(
-                        "PDF firmado",
-                        type=["pdf"],
-                        key="file"+str(caso["consecutivo"])
+                if archivo:
+                    with open(f"contratos_firmados/{caso['consecutivo']}.pdf", "wb") as f:
+                        f.write(archivo.read())
+                    st.success("Contrato firmado guardado")
+
+                st.subheader("Avances")
+
+                nuevo_avance = st.text_area(
+                    "Nuevo avance",
+                    key=f"avance_{caso['consecutivo']}"
+                )
+
+                if st.button("Guardar Avance", key=f"btnavance_{caso['consecutivo']}"):
+                    c.execute(
+                        "INSERT INTO avances (consecutivo, descripcion, fecha) VALUES (?, ?, ?)",
+                        (caso["consecutivo"], nuevo_avance, datetime.now().strftime("%Y-%m-%d"))
                     )
+                    conn.commit()
+                    st.success("Avance guardado")
 
-                    if archivo:
-                        with open(f"contratos_firmados/{caso['consecutivo']}.pdf", "wb") as f:
-                            f.write(archivo.read())
-                        st.success("Contrato firmado guardado")
+                avances = c.execute(
+                    "SELECT * FROM avances WHERE consecutivo=?",
+                    (caso["consecutivo"],)
+                ).fetchall()
 
-                    st.subheader("Avances")
-
-                    nuevo_avance = st.text_area(
-                        "Nuevo avance",
-                        key="avance"+str(caso["consecutivo"])
-                    )
-
-                    if st.button("Guardar Avance", key="btnavance"+str(caso["consecutivo"])):
-                        c.execute(
-                            "INSERT INTO avances (caso_consecutivo, descripcion, fecha) VALUES (?, ?, ?)",
-                            (caso["consecutivo"], nuevo_avance, datetime.now().strftime("%Y-%m-%d"))
-                        )
-                        conn.commit()
-                        st.success("Avance guardado")
-
-                    avances = c.execute(
-                        "SELECT * FROM avances WHERE caso_consecutivo=?",
-                        (caso["consecutivo"],)
-                    ).fetchall()
-
-                    for a in avances:
-                        st.write(f"{a['fecha']} - {a['descripcion']}")
+                for a in avances:
+                    st.write(f"{a['fecha']} - {a['descripcion']}")
