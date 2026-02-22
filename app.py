@@ -13,7 +13,7 @@ ID_CONSULTOR = "CE 7354548"
 CLAVE_ADMIN = "1234"
 APP_URL = "https://legaltech-asesorias.streamlit.app"
 
-# --- 1. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
+# --- INICIALIZACIÓN DE VARIABLES ---
 if 'auth' not in st.session_state:
     st.session_state.auth = False
 if 'pdf_contrato' not in st.session_state:
@@ -21,22 +21,20 @@ if 'pdf_contrato' not in st.session_state:
 if 'nombre_pdf' not in st.session_state:
     st.session_state.nombre_pdf = ""
 
-# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Barragán Consultoría", layout="centered", page_icon="⚖️")
 
-# --- ESTILO CSS PULCRO ---
+# --- ESTILO CSS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #ffffff; }
     .st-emotion-cache-1r6slb0 { background-color: #fcfcfc; border-radius: 12px; padding: 2.5rem; border: 1px solid #f0f0f0; }
-    h1, h2 { color: #000; font-weight: 600; letter-spacing: -1.2px; }
-    .stButton>button { width: 100%; border-radius: 8px; background-color: #000; color: #fff; font-weight: 600; border: none; padding: 0.6rem; }
+    .stButton>button { width: 100%; border-radius: 8px; background-color: #000; color: #fff; font-weight: 600; padding: 0.6rem; border: none; }
     .stDownloadButton>button { width: 100%; border-radius: 8px; background-color: #0066ff; color: #fff; font-weight: 600; border: none; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. BASE DE DATOS ---
+# --- BASE DE DATOS ---
 def init_db():
     conn = sqlite3.connect('barragan_legal_final.db', check_same_thread=False)
     c = conn.cursor()
@@ -49,7 +47,7 @@ def init_db():
 
 init_db()
 
-# --- 3. GENERADOR DE PDF A4 PULCRO (ESTRUCTURA LEGAL EXACTA) ---
+# --- GENERADOR DE PDF A4 PULCRO ---
 def generar_contrato_final(datos):
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_margins(left=25, top=25, right=25)
@@ -76,12 +74,12 @@ def generar_contrato_final(datos):
          f"El CONSULTOR prestará sus servicios de asesoría técnica y estratégica para la gestión de: {datos['tramite']} ante la entidad {datos['accionado']}."),
         
         ("SEGUNDA: ALCANCE Y NATURALEZA DEL SERVICIO (DISCLAIMER)", 
-         "El CONTRATANTE declara entender que el servicio prestado es de naturaleza técnica y de gestión administrativa. El CONSULTOR no es abogado titulado y no ofrece representación judicial ni defensa jurídica reservada a profesionales del derecho. El servicio consiste en la elaboración de documentos y estrategias para que el CONTRATANTE ejerza sus derechos constitucionales por cuenta propia."),
+         "El CONTRATANTE declara entender que el servicio prestado es de naturaleza técnica y de gestión administrativa. El CONSULTOR no es abogado titulado y no ofrece representación judicial ni defensa jurídica reservada a profesionales del derecho."),
         
         ("TERCERA: VALOR Y FORMA DE PAGO", 
          f"El valor total de la consultoría es de ${datos['valor']:,.0f} COP, los cuales se cancelarán así:\n"
-         f"- Anticipo (50%): ${datos['valor']*0.5:,.0f} a la firma del contrato para inicio de labores.\n"
-         f"- Saldo (50%): ${datos['valor']*0.5:,.0f} pagaderos al momento de la entrega de los documentos finales."),
+         f"- Anticipo (50%): ${datos['valor']*0.5:,.0f} a la firma del contrato.\n"
+         f"- Saldo (50%): ${datos['valor']*0.5:,.0f} pagaderos al momento de la entrega de los documentos."),
         
         ("CUARTA: OBLIGACIONES DEL CONSULTOR", 
          "1. Analizar la información suministrada con rigor técnico.\n2. Entregar los documentos oportunamente.\n3. Mantener absoluta confidencialidad."),
@@ -106,14 +104,16 @@ def generar_contrato_final(datos):
     pdf.ln(5)
     pdf.cell(w_util, 10, f"En la ciudad de Medellín, a los {f.day} días del mes de {meses[f.month-1]} de 2026.", ln=True)
     
-    # Firmas
+    # --- BLOQUE DE FIRMAS CORREGIDO ---
     pdf.ln(20)
     y_f = pdf.get_y()
-    pdf.line(25, y_f + 10, 90, y_f + 10)
-    pdf.line(120, y_f + 10, 185, y_f + 10)
+    # Líneas de firma simétricas (70mm cada una)
+    pdf.line(25, y_f + 10, 95, y_f + 10) # Izquierda
+    pdf.line(115, y_f + 10, 185, y_f + 10) # Derecha
     pdf.ln(12)
-    pdf.cell(90, 10, "EL CONTRATANTE", align='C')
-    pdf.cell(100, 10, "EL CONSULTOR", align='C')
+    # Celdas de texto simétricas (80mm cada una, total 160mm)
+    pdf.cell(80, 10, "EL CONTRATANTE", align='C')
+    pdf.cell(80, 10, "EL CONSULTOR", align='C')
 
     # QR
     qr = qrcode.make(APP_URL)
@@ -123,9 +123,9 @@ def generar_contrato_final(datos):
 
     return bytes(pdf.output())
 
-# --- 4. NAVEGACIÓN ---
+# --- NAVEGACIÓN ---
 with st.sidebar:
-    st.title("⚖️ Panel de Control")
+    st.title("⚖️ Panel")
     opcion = st.radio("Secciones", ["✨ Solicitar", "🔍 Consultar", "🔒 Admin"])
     if st.session_state.auth and st.button("Cerrar Sesión"):
         st.session_state.auth = False
@@ -155,7 +155,6 @@ elif opcion == "🔍 Consultar":
 
 elif opcion == "🔒 Admin":
     if not st.session_state.auth:
-        st.subheader("Acceso Administrativo")
         clave_i = st.text_input("Clave de Seguridad", type="password")
         if st.button("Entrar"):
             if clave_i == CLAVE_ADMIN:
@@ -164,8 +163,7 @@ elif opcion == "🔒 Admin":
             else: st.error("Clave Incorrecta")
     else:
         st.title("Panel de Administración")
-        tab1, tab2 = st.tabs(["📝 Registrar Caso", "📂 Gestionar Procesos"])
-        
+        tab1, tab2 = st.tabs(["📝 Registrar Caso", "📂 Gestionar"])
         with tab1:
             with st.form("nuevo_registro"):
                 c1, c2 = st.columns(2)
@@ -196,14 +194,3 @@ elif opcion == "🔒 Admin":
             df_g = pd.read_sql_query("SELECT id, nombre, tramite, estado FROM gestion_procesos", conn)
             conn.close()
             st.dataframe(df_g, use_container_width=True)
-            if not df_g.empty:
-                sid = st.selectbox("ID de proceso", df_g['id'])
-                n_av = st.text_area("Nuevo avance técnico")
-                n_es = st.selectbox("Estado", ["En Trámite", "Pendiente Entidad", "Exitoso"])
-                if st.button("Actualizar Proceso"):
-                    conn = sqlite3.connect('barragan_legal_final.db')
-                    cur = conn.cursor()
-                    cur.execute("UPDATE gestion_procesos SET estado=?, avances=? WHERE id=?", (n_es, n_av, sid))
-                    conn.commit()
-                    conn.close()
-                    st.success("Actualizado.")
