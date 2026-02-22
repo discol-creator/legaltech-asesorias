@@ -1,196 +1,191 @@
 import streamlit as st
 import sqlite3
-import pandas as pd
+import uuid
+import os
+import hashlib
 from datetime import datetime
-from fpdf import FPDF
-import qrcode
-import io
-import urllib.parse
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
 
-# --- DATOS DEL CONSULTOR ---
-CONSULTOR_NOMBRE = "FRANCISCO JOSÉ BARRAGÁN BARRAGÁN"
-ID_CONSULTOR = "CE 7354548"
-CLAVE_ADMIN = "1234"
-APP_URL = "https://legaltech-asesorias.streamlit.app"
+# CONFIG
+st.set_page_config(page_title="Gestión Contractual", layout="wide")
 
-# --- INICIALIZACIÓN DE VARIABLES ---
-if 'auth' not in st.session_state:
-    st.session_state.auth = False
-if 'pdf_contrato' not in st.session_state:
-    st.session_state.pdf_contrato = None
-if 'nombre_pdf' not in st.session_state:
-    st.session_state.nombre_pdf = ""
+CONSULTOR_NOMBRE = "Francisco Jose Barragan Barragan"
+CONSULTOR_DOC = "CE 7354548"
+PAGO_LLAVE = "@francisbarragan"
 
-st.set_page_config(page_title="Barragán Consultoría", layout="centered", page_icon="⚖️")
+if not os.path.exists("contratos_generados"):
+    os.makedirs("contratos_generados")
 
-# --- ESTILO CSS ---
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #ffffff; }
-    .st-emotion-cache-1r6slb0 { background-color: #fcfcfc; border-radius: 12px; padding: 2.5rem; border: 1px solid #f0f0f0; }
-    .stButton>button { width: 100%; border-radius: 8px; background-color: #000; color: #fff; font-weight: 600; padding: 0.6rem; border: none; }
-    .stDownloadButton>button { width: 100%; border-radius: 8px; background-color: #0066ff; color: #fff; font-weight: 600; border: none; }
-    </style>
-    """, unsafe_allow_html=True)
+if not os.path.exists("contratos_firmados"):
+    os.makedirs("contratos_firmados")
 
-# --- BASE DE DATOS ---
-def init_db():
-    conn = sqlite3.connect('barragan_legal_final.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS gestion_procesos 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, numero TEXT, nombre TEXT, cedula TEXT, 
-                  telefono TEXT, tramite TEXT, accionado TEXT, valor REAL, 
-                  estado TEXT, avances TEXT, fecha TEXT, firmado BLOB)''')
-    conn.commit()
-    conn.close()
+# DB INIT
+conn = sqlite3.connect("database.db", check_same_thread=False)
+c = conn.cursor()
 
-init_db()
+c.execute('''
+CREATE TABLE IF NOT EXISTS casos (
+    id TEXT PRIMARY KEY,
+    nombre TEXT,
+    documento TEXT,
+    tipo_tramite TEXT,
+    accionado TEXT,
+    valor INTEGER,
+    estado TEXT,
+    token TEXT,
+    fecha TEXT
+)
+''')
 
-# --- GENERADOR DE PDF A4 PULCRO ---
-def generar_contrato_final(datos):
-    pdf = FPDF(orientation='P', unit='mm', format='A4')
-    pdf.set_margins(left=25, top=25, right=25)
-    pdf.set_auto_page_break(auto=True, margin=25)
-    pdf.add_page()
-    w_util = pdf.epw 
-    
-    # Título
-    pdf.set_font("Arial", "B", 12)
-    pdf.multi_cell(w_util, 10, "CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA", align='C')
-    pdf.ln(5)
-    
-    # Identificación
-    pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(w_util, 6, f"CONTRATANTE: {datos['nombre']}, identificado con C.C. No. {datos['cedula']}, actuando en nombre propio.")
-    pdf.multi_cell(w_util, 6, f"CONSULTOR: {CONSULTOR_NOMBRE}, identificado con {ID_CONSULTOR}, profesional con Maestría en Innovación Social y experto en Accesibilidad, operando bajo la actividad económica RUT 7490.")
-    pdf.ln(5)
-    pdf.multi_cell(w_util, 6, "Las partes acuerdan suscribir el presente contrato de consultoría técnica bajo las siguientes cláusulas:")
-    pdf.ln(3)
+c.execute('''
+CREATE TABLE IF NOT EXISTS avances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    caso_id TEXT,
+    descripcion TEXT,
+    fecha TEXT
+)
+''')
 
-    # Cláusulas
-    secciones = [
-        ("PRIMERA: OBJETO DEL SERVICIO", 
-         f"El CONSULTOR prestará sus servicios de asesoría técnica y estratégica para la gestión de: {datos['tramite']} ante la entidad {datos['accionado']}."),
-        
-        ("SEGUNDA: ALCANCE Y NATURALEZA DEL SERVICIO (DISCLAIMER)", 
-         "El CONTRATANTE declara entender que el servicio prestado es de naturaleza técnica y de gestión administrativa. El CONSULTOR no es abogado titulado y no ofrece representación judicial ni defensa jurídica reservada a profesionales del derecho."),
-        
-        ("TERCERA: VALOR Y FORMA DE PAGO", 
-         f"El valor total de la consultoría es de ${datos['valor']:,.0f} COP, los cuales se cancelarán así:\n"
-         f"- Anticipo (50%): ${datos['valor']*0.5:,.0f} a la firma del contrato.\n"
-         f"- Saldo (50%): ${datos['valor']*0.5:,.0f} pagaderos al momento de la entrega de los documentos."),
-        
-        ("CUARTA: OBLIGACIONES DEL CONSULTOR", 
-         "1. Analizar la información suministrada con rigor técnico.\n2. Entregar los documentos oportunamente.\n3. Mantener absoluta confidencialidad."),
-        
-        ("QUINTA: OBLIGACIONES DEL CONTRATANTE", 
-         "1. Suministrar información veraz.\n2. Radicar documentos bajo su propia responsabilidad.\n3. Cumplir con los pagos pactados."),
-        
-        ("SEXTA: PROTECCIÓN DE DATOS", 
-         "Ambas partes autorizan el tratamiento de datos personales conforme a la Ley 1581 de 2012.")
-    ]
+conn.commit()
 
-    for tit, cont in secciones:
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(w_util, 8, tit, ln=True)
-        pdf.set_font("Arial", "", 10)
-        pdf.multi_cell(w_util, 6, cont)
-        pdf.ln(2)
+# FUNCIONES
 
-    # Cierre
-    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-    f = datetime.now()
-    pdf.ln(5)
-    pdf.cell(w_util, 10, f"En la ciudad de Medellín, a los {f.day} días del mes de {meses[f.month-1]} de 2026.", ln=True)
-    
-    # --- BLOQUE DE FIRMAS CORREGIDO ---
-    pdf.ln(20)
-    y_f = pdf.get_y()
-    # Líneas de firma simétricas (70mm cada una)
-    pdf.line(25, y_f + 10, 95, y_f + 10) # Izquierda
-    pdf.line(115, y_f + 10, 185, y_f + 10) # Derecha
-    pdf.ln(12)
-    # Celdas de texto simétricas (80mm cada una, total 160mm)
-    pdf.cell(80, 10, "EL CONTRATANTE", align='C')
-    pdf.cell(80, 10, "EL CONSULTOR", align='C')
+def generar_token(documento):
+    return hashlib.sha256(documento.encode()).hexdigest()
 
-    # QR
-    qr = qrcode.make(APP_URL)
-    qr_io = io.BytesIO()
-    qr.save(qr_io, format="PNG")
-    pdf.image(qr_io, x=170, y=250, w=25)
+def generar_pdf(data):
+    file_path = f"contratos_generados/{data['id']}.pdf"
+    doc = SimpleDocTemplate(file_path)
+    styles = getSampleStyleSheet()
+    elements = []
 
-    return bytes(pdf.output())
+    elements.append(Paragraph("<b>CONTRATO DE PRESTACIÓN DE SERVICIOS</b>", styles['Title']))
+    elements.append(Spacer(1, 0.3 * inch))
 
-# --- NAVEGACIÓN ---
-with st.sidebar:
-    st.title("⚖️ Panel")
-    opcion = st.radio("Secciones", ["✨ Solicitar", "🔍 Consultar", "🔒 Admin"])
-    if st.session_state.auth and st.button("Cerrar Sesión"):
-        st.session_state.auth = False
-        st.rerun()
+    contenido = f"""
+    Entre {data['nombre']} identificado con C.C {data['documento']} y 
+    {CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC}, se celebra contrato 
+    de prestación de servicios para {data['tipo_tramite']} contra {data['accionado']}.
 
-# --- MÓDULOS ---
-if opcion == "✨ Solicitar":
-    st.title("Inicia tu Proceso")
-    n_cl = st.text_input("Nombre")
-    w_cl = st.text_input("WhatsApp")
-    s_cl = st.selectbox("Servicio", ["Ajustes Razonables", "Borrados", "Peticiones"])
-    if st.button("Enviar Pedido"):
-        wa = f"https://wa.me/573116651518?text=Hola Francisco! Soy {n_cl}. Requiero: {s_cl}"
-        st.markdown(f'<a href="{wa}" target="_blank">🚀 Enviar</a>', unsafe_allow_html=True)
+    Valor del contrato: ${data['valor']:,} COP.
 
-elif opcion == "🔍 Consultar":
-    st.title("Estado de Trámite")
-    cc_s = st.text_input("Cédula", type="password")
-    if st.button("Ver Mi Estado"):
-        conn = sqlite3.connect('barragan_legal_final.db')
-        res = pd.read_sql_query("SELECT * FROM gestion_procesos WHERE cedula=?", conn, params=(cc_s,))
-        conn.close()
-        if not res.empty:
-            st.success(f"Estado: {res['estado'].iloc[0]}")
-            st.info(f"Avance: {res['avances'].iloc[0]}")
-        else: st.error("No registrado.")
+    Forma de pago:
+    50% anticipo y 50% contra entrega.
+    Pagos vía Llave Bre-B: {PAGO_LLAVE}.
 
-elif opcion == "🔒 Admin":
-    if not st.session_state.auth:
-        clave_i = st.text_input("Clave de Seguridad", type="password")
-        if st.button("Entrar"):
-            if clave_i == CLAVE_ADMIN:
-                st.session_state.auth = True
-                st.rerun()
-            else: st.error("Clave Incorrecta")
-    else:
-        st.title("Panel de Administración")
-        tab1, tab2 = st.tabs(["📝 Registrar Caso", "📂 Gestionar"])
-        with tab1:
-            with st.form("nuevo_registro"):
-                c1, c2 = st.columns(2)
-                nom_i = c1.text_input("Nombre Cliente")
-                ced_i = c1.text_input("Cédula")
-                pho_i = c2.text_input("Teléfono")
-                val_i = c2.number_input("Valor total COP", min_value=0)
-                tra_i = st.selectbox("Trámite", ["Solicitud de Ajustes Razonables", "Reclamación falta de notificación", "Estructuración Derechos de Petición"])
-                ent_i = st.text_input("Entidad")
-                if st.form_submit_button("Guardar y Generar PDF"):
-                    num_c = f"CON-{datetime.now().strftime('%y%m%d%H%M')}"
-                    fec_c = datetime.now().strftime("%Y-%m-%d")
-                    conn = sqlite3.connect('barragan_legal_final.db')
-                    cur = conn.cursor()
-                    cur.execute("INSERT INTO gestion_procesos (numero, nombre, cedula, telefono, tramite, accionado, valor, estado, avances, fecha) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                              (num_c, nom_i, ced_i, pho_i, tra_i, ent_i, val_i, "Abierto", "Iniciado", fec_c))
-                    conn.commit()
-                    conn.close()
-                    st.session_state.pdf_contrato = generar_contrato_final({"nombre":nom_i, "cedula":ced_i, "tramite":tra_i, "accionado":ent_i, "valor":val_i})
-                    st.session_state.nombre_pdf = f"Contrato_{nom_i}.pdf"
-                    st.success("✅ Caso registrado.")
+    El consultor no actúa como abogado ni representante judicial.
+    """
 
-            if st.session_state.pdf_contrato is not None:
-                st.download_button("📥 DESCARGAR CONTRATO A4", st.session_state.pdf_contrato, st.session_state.nombre_pdf, "application/pdf")
+    elements.append(Paragraph(contenido, styles['Normal']))
+    doc.build(elements)
 
-        with tab2:
-            conn = sqlite3.connect('barragan_legal_final.db')
-            df_g = pd.read_sql_query("SELECT id, nombre, tramite, estado FROM gestion_procesos", conn)
-            conn.close()
-            st.dataframe(df_g, use_container_width=True)
+# SIDEBAR
+
+menu = st.sidebar.selectbox(
+    "Menú",
+    ["Crear Caso", "Gestión Interna", "Consulta Cliente"]
+)
+
+# CREAR CASO
+
+if menu == "Crear Caso":
+    st.title("Crear Nuevo Caso")
+
+    nombre = st.text_input("Nombre Completo")
+    documento = st.text_input("Número de Documento")
+    tipo = st.selectbox("Tipo de trámite", [
+        "Ajustes Razonables",
+        "Eliminación Reporte Negativo",
+        "Derecho de Petición"
+    ])
+    accionado = st.text_input("Entidad accionada")
+    valor = st.number_input("Valor del contrato (COP)", min_value=0)
+
+    if st.button("Crear Caso"):
+        caso_id = str(uuid.uuid4())
+        token = generar_token(documento)
+        fecha = datetime.now().strftime("%Y-%m-%d")
+
+        c.execute('''
+            INSERT INTO casos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            caso_id, nombre, documento, tipo,
+            accionado, valor, "Abierto", token, fecha
+        ))
+        conn.commit()
+
+        generar_pdf({
+            "id": caso_id,
+            "nombre": nombre,
+            "documento": documento,
+            "tipo_tramite": tipo,
+            "accionado": accionado,
+            "valor": valor
+        })
+
+        st.success("Caso creado y contrato generado.")
+
+# GESTIÓN INTERNA
+
+elif menu == "Gestión Interna":
+    st.title("Panel de Gestión")
+
+    casos = c.execute("SELECT * FROM casos").fetchall()
+
+    for caso in casos:
+        with st.expander(f"{caso[1]} - {caso[3]} - Estado: {caso[6]}"):
+            st.write(f"Documento: {caso[2]}")
+            st.write(f"Accionado: {caso[4]}")
+            st.write(f"Valor: ${caso[5]:,} COP")
+
+            nuevo_estado = st.selectbox(
+                "Cambiar Estado",
+                ["Abierto", "En Gestión", "Pendiente Firma", "Firmado", "Cerrado"],
+                index=["Abierto", "En Gestión", "Pendiente Firma", "Firmado", "Cerrado"].index(caso[6]),
+                key=caso[0]
+            )
+
+            if st.button("Actualizar Estado", key=caso[0]+"estado"):
+                c.execute("UPDATE casos SET estado=? WHERE id=?", (nuevo_estado, caso[0]))
+                conn.commit()
+                st.success("Estado actualizado")
+
+            avance = st.text_area("Agregar Avance", key=caso[0]+"avance")
+            if st.button("Guardar Avance", key=caso[0]+"btnavance"):
+                c.execute("INSERT INTO avances (caso_id, descripcion, fecha) VALUES (?, ?, ?)",
+                          (caso[0], avance, datetime.now().strftime("%Y-%m-%d")))
+                conn.commit()
+                st.success("Avance guardado")
+
+            firmado = st.file_uploader("Subir contrato firmado", type=["pdf"], key=caso[0]+"file")
+            if firmado:
+                with open(f"contratos_firmados/{caso[0]}.pdf", "wb") as f:
+                    f.write(firmado.read())
+                st.success("Contrato firmado almacenado")
+
+# CONSULTA CLIENTE
+
+elif menu == "Consulta Cliente":
+    st.title("Consulta de Proceso")
+
+    doc_consulta = st.text_input("Ingrese su número de documento")
+
+    if st.button("Consultar"):
+        token = generar_token(doc_consulta)
+        caso = c.execute("SELECT * FROM casos WHERE token=?", (token,)).fetchone()
+
+        if caso:
+            st.write(f"Estado actual: {caso[6]}")
+            st.write(f"Tipo de trámite: {caso[3]}")
+            st.write(f"Entidad accionada: {caso[4]}")
+
+            avances = c.execute("SELECT descripcion, fecha FROM avances WHERE caso_id=?", (caso[0],)).fetchall()
+            for a in avances:
+                st.write(f"{a[1]} - {a[0]}")
+        else:
+            st.error("No se encontró proceso asociado.")
