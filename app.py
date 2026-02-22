@@ -7,13 +7,13 @@ import qrcode
 import io
 import urllib.parse
 
-# --- DATOS DEL CONSULTOR (VERIFICADOS) ---
+# --- DATOS DEL CONSULTOR ---
 CONSULTOR_NOMBRE = "FRANCISCO JOSÉ BARRAGÁN BARRAGÁN"
 ID_CONSULTOR = "CE 7354548"
 CLAVE_ADMIN = "1234"
 APP_URL = "https://legaltech-asesorias.streamlit.app"
 
-# --- INICIALIZACIÓN DE VARIABLES ---
+# --- 1. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
 if 'auth' not in st.session_state:
     st.session_state.auth = False
 if 'pdf_contrato' not in st.session_state:
@@ -21,22 +21,24 @@ if 'pdf_contrato' not in st.session_state:
 if 'nombre_pdf' not in st.session_state:
     st.session_state.nombre_pdf = ""
 
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Barragán Consultoría", layout="centered", page_icon="⚖️")
 
-# --- ESTILO CSS ---
+# --- ESTILO CSS PULCRO ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #ffffff; }
     .st-emotion-cache-1r6slb0 { background-color: #fcfcfc; border-radius: 12px; padding: 2.5rem; border: 1px solid #f0f0f0; }
-    .stButton>button { width: 100%; border-radius: 8px; background-color: #000; color: #fff; font-weight: 600; padding: 0.6rem; border: none; }
+    h1, h2 { color: #000; font-weight: 600; letter-spacing: -1.2px; }
+    .stButton>button { width: 100%; border-radius: 8px; background-color: #000; color: #fff; font-weight: 600; border: none; padding: 0.6rem; }
     .stDownloadButton>button { width: 100%; border-radius: 8px; background-color: #0066ff; color: #fff; font-weight: 600; border: none; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- BASE DE DATOS ---
+# --- 2. BASE DE DATOS ---
 def init_db():
-    conn = sqlite3.connect('consultoria_pulcra.db', check_same_thread=False)
+    conn = sqlite3.connect('barragan_legal_final.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS gestion_procesos 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, numero TEXT, nombre TEXT, cedula TEXT, 
@@ -47,107 +49,161 @@ def init_db():
 
 init_db()
 
-# --- GENERADOR DE PDF A4 PULCRO ---
-def generar_contrato_pulcro(datos):
-    # Configuración A4 estricta con márgenes de 25mm
+# --- 3. GENERADOR DE PDF A4 PULCRO (ESTRUCTURA LEGAL EXACTA) ---
+def generar_contrato_final(datos):
     pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_margins(left=25, top=25, right=25)
     pdf.set_auto_page_break(auto=True, margin=25)
     pdf.add_page()
+    w_util = pdf.epw 
     
-    w_util = pdf.epw # Ancho efectivo tras márgenes
-
-    # Título Principal
-    pdf.set_font("Arial", "B", 14)
+    # Título
+    pdf.set_font("Arial", "B", 12)
     pdf.multi_cell(w_util, 10, "CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA", align='C')
-    pdf.ln(10)
+    pdf.ln(5)
     
-    # Identificación de Partes
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(w_util, 6, "PARTES INTERVINIENTES", ln=True)
+    # Identificación
     pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(w_util, 6, f"CONTRATANTE: {datos['nombre'].upper()}, identificado con C.C. No. {datos['cedula']}, actuando en nombre propio.")
-    pdf.ln(2)
-    # Variable ID_CONSULTOR corregida aquí
-    pdf.multi_cell(w_util, 6, f"CONSULTOR: {CONSULTOR_NOMBRE}, identificado con {ID_CONSULTOR}, profesional con Maestría en Innovación Social y experto en Accesibilidad (RUT 7490).")
-    pdf.ln(8)
-    
-    pdf.multi_cell(w_util, 6, "Las partes acuerdan suscribir el presente contrato bajo las siguientes cláusulas:")
-    pdf.ln(4)
+    pdf.multi_cell(w_util, 6, f"CONTRATANTE: {datos['nombre']}, identificado con C.C. No. {datos['cedula']}, actuando en nombre propio.")
+    pdf.multi_cell(w_util, 6, f"CONSULTOR: {CONSULTOR_NOMBRE}, identificado con {ID_CONSULTOR}, profesional con Maestría en Innovación Social y experto en Accesibilidad, operando bajo la actividad económica RUT 7490.")
+    pdf.ln(5)
+    pdf.multi_cell(w_util, 6, "Las partes acuerdan suscribir el presente contrato de consultoría técnica bajo las siguientes cláusulas:")
+    pdf.ln(3)
 
-    # Bloque de Cláusulas
-    clausulas = [
+    # Cláusulas
+    secciones = [
         ("PRIMERA: OBJETO DEL SERVICIO", 
-         f"Asesoría técnica y estratégica para la gestión de: {datos['tramite']} ante la entidad {datos['accionado']}."),
+         f"El CONSULTOR prestará sus servicios de asesoría técnica y estratégica para la gestión de: {datos['tramite']} ante la entidad {datos['accionado']}."),
         
-        ("SEGUNDA: ALCANCE Y NATURALEZA (DISCLAIMER)", 
-         "Servicio de naturaleza técnica y administrativa. El CONSULTOR no es abogado titulado y no ofrece defensa jurídica judicial reservada a profesionales del derecho."),
+        ("SEGUNDA: ALCANCE Y NATURALEZA DEL SERVICIO (DISCLAIMER)", 
+         "El CONTRATANTE declara entender que el servicio prestado es de naturaleza técnica y de gestión administrativa. El CONSULTOR no es abogado titulado y no ofrece representación judicial ni defensa jurídica reservada a profesionales del derecho. El servicio consiste en la elaboración de documentos y estrategias para que el CONTRATANTE ejerza sus derechos constitucionales por cuenta propia."),
         
         ("TERCERA: VALOR Y FORMA DE PAGO", 
-         f"VALOR TOTAL: ${datos['valor']:,.0f} COP\n"
-         f"- Anticipo (50%): ${datos['valor']*0.5:,.0f} al inicio de labores.\n"
-         f"- Saldo (50%): ${datos['valor']*0.5:,.0f} a la entrega de documentos."),
+         f"El valor total de la consultoría es de ${datos['valor']:,.0f} COP, los cuales se cancelarán así:\n"
+         f"- Anticipo (50%): ${datos['valor']*0.5:,.0f} a la firma del contrato para inicio de labores.\n"
+         f"- Saldo (50%): ${datos['valor']*0.5:,.0f} pagaderos al momento de la entrega de los documentos finales."),
         
         ("CUARTA: OBLIGACIONES DEL CONSULTOR", 
-         "Análisis con rigor técnico, entrega oportuna de documentos y confidencialidad absoluta de los datos suministrados."),
+         "1. Analizar la información suministrada con rigor técnico.\n2. Entregar los documentos oportunamente.\n3. Mantener absoluta confidencialidad."),
         
         ("QUINTA: OBLIGACIONES DEL CONTRATANTE", 
-         "Suministrar información veraz, radicar documentos bajo su responsabilidad y cumplir con los pagos pactados."),
+         "1. Suministrar información veraz.\n2. Radicar documentos bajo su propia responsabilidad.\n3. Cumplir con los pagos pactados."),
         
         ("SEXTA: PROTECCIÓN DE DATOS", 
-         "Tratamiento de datos personales conforme a la Ley 1581 de 2012.")
+         "Ambas partes autorizan el tratamiento de datos personales conforme a la Ley 1581 de 2012.")
     ]
 
-    for tit, cont in clausulas:
+    for tit, cont in secciones:
         pdf.set_font("Arial", "B", 10)
-        pdf.cell(w_util, 7, tit, ln=True)
+        pdf.cell(w_util, 8, tit, ln=True)
         pdf.set_font("Arial", "", 10)
         pdf.multi_cell(w_util, 6, cont)
-        pdf.ln(4)
+        pdf.ln(2)
 
     # Cierre
-    pdf.ln(6)
     meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     f = datetime.now()
-    pdf.cell(w_util, 10, f"Medellín, a los {f.day} días del mes de {meses[f.month-1]} de 2026.", ln=True)
+    pdf.ln(5)
+    pdf.cell(w_util, 10, f"En la ciudad de Medellín, a los {f.day} días del mes de {meses[f.month-1]} de 2026.", ln=True)
     
     # Firmas
-    pdf.ln(25)
-    y_firmas = pdf.get_y()
-    pdf.line(25, y_firmas, 95, y_firmas)
-    pdf.line(115, y_firmas, 185, y_firmas)
-    pdf.set_font("Arial", "B", 10)
+    pdf.ln(20)
+    y_f = pdf.get_y()
+    pdf.line(25, y_f + 10, 90, y_f + 10)
+    pdf.line(120, y_f + 10, 185, y_f + 10)
+    pdf.ln(12)
     pdf.cell(90, 10, "EL CONTRATANTE", align='C')
     pdf.cell(100, 10, "EL CONSULTOR", align='C')
 
-    # Código QR
+    # QR
     qr = qrcode.make(APP_URL)
-    qr_b = io.BytesIO()
-    qr.save(qr_b, format="PNG")
-    pdf.image(qr_b, x=165, y=255, w=25)
+    qr_io = io.BytesIO()
+    qr.save(qr_io, format="PNG")
+    pdf.image(qr_io, x=170, y=250, w=25)
 
     return bytes(pdf.output())
 
-# --- NAVEGACIÓN ---
+# --- 4. NAVEGACIÓN ---
 with st.sidebar:
-    st.title("⚖️ Panel")
-    menu = st.radio("Ir a:", ["✨ Solicitar", "🔍 Consultar", "🔒 Admin"])
-    if st.session_state.auth and st.button("Salir"):
+    st.title("⚖️ Panel de Control")
+    opcion = st.radio("Secciones", ["✨ Solicitar", "🔍 Consultar", "🔒 Admin"])
+    if st.session_state.auth and st.button("Cerrar Sesión"):
         st.session_state.auth = False
         st.rerun()
 
 # --- MÓDULOS ---
-if menu == "✨ Solicitar":
+if opcion == "✨ Solicitar":
     st.title("Inicia tu Proceso")
-    n_c = st.text_input("Nombre")
-    t_c = st.text_input("WhatsApp")
-    s_c = st.selectbox("Servicio", ["Ajustes Razonables", "Borrados", "Peticiones"])
-    if st.button("Enviar"):
-        wa = f"https://wa.me/573116651518?text=Hola Francisco! Soy {n_c}, necesito ayuda con {s_c}."
-        st.markdown(f'<a href="{wa}" target="_blank">🚀 Enviar WhatsApp</a>', unsafe_allow_html=True)
+    n_cl = st.text_input("Nombre")
+    w_cl = st.text_input("WhatsApp")
+    s_cl = st.selectbox("Servicio", ["Ajustes Razonables", "Borrados", "Peticiones"])
+    if st.button("Enviar Pedido"):
+        wa = f"https://wa.me/573116651518?text=Hola Francisco! Soy {n_cl}. Requiero: {s_cl}"
+        st.markdown(f'<a href="{wa}" target="_blank">🚀 Enviar</a>', unsafe_allow_html=True)
 
-elif menu == "🔍 Consultar":
-    st.title("Mi Estado")
+elif opcion == "🔍 Consultar":
+    st.title("Estado de Trámite")
     cc_s = st.text_input("Cédula", type="password")
-    if st.button("Consultar"):
-        conn
+    if st.button("Ver Mi Estado"):
+        conn = sqlite3.connect('barragan_legal_final.db')
+        res = pd.read_sql_query("SELECT * FROM gestion_procesos WHERE cedula=?", conn, params=(cc_s,))
+        conn.close()
+        if not res.empty:
+            st.success(f"Estado: {res['estado'].iloc[0]}")
+            st.info(f"Avance: {res['avances'].iloc[0]}")
+        else: st.error("No registrado.")
+
+elif opcion == "🔒 Admin":
+    if not st.session_state.auth:
+        st.subheader("Acceso Administrativo")
+        clave_i = st.text_input("Clave de Seguridad", type="password")
+        if st.button("Entrar"):
+            if clave_i == CLAVE_ADMIN:
+                st.session_state.auth = True
+                st.rerun()
+            else: st.error("Clave Incorrecta")
+    else:
+        st.title("Panel de Administración")
+        tab1, tab2 = st.tabs(["📝 Registrar Caso", "📂 Gestionar Procesos"])
+        
+        with tab1:
+            with st.form("nuevo_registro"):
+                c1, c2 = st.columns(2)
+                nom_i = c1.text_input("Nombre Cliente")
+                ced_i = c1.text_input("Cédula")
+                pho_i = c2.text_input("Teléfono")
+                val_i = c2.number_input("Valor total COP", min_value=0)
+                tra_i = st.selectbox("Trámite", ["Solicitud de Ajustes Razonables", "Reclamación falta de notificación", "Estructuración Derechos de Petición"])
+                ent_i = st.text_input("Entidad")
+                if st.form_submit_button("Guardar y Generar PDF"):
+                    num_c = f"CON-{datetime.now().strftime('%y%m%d%H%M')}"
+                    fec_c = datetime.now().strftime("%Y-%m-%d")
+                    conn = sqlite3.connect('barragan_legal_final.db')
+                    cur = conn.cursor()
+                    cur.execute("INSERT INTO gestion_procesos (numero, nombre, cedula, telefono, tramite, accionado, valor, estado, avances, fecha) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                              (num_c, nom_i, ced_i, pho_i, tra_i, ent_i, val_i, "Abierto", "Iniciado", fec_c))
+                    conn.commit()
+                    conn.close()
+                    st.session_state.pdf_contrato = generar_contrato_final({"nombre":nom_i, "cedula":ced_i, "tramite":tra_i, "accionado":ent_i, "valor":val_i})
+                    st.session_state.nombre_pdf = f"Contrato_{nom_i}.pdf"
+                    st.success("✅ Caso registrado.")
+
+            if st.session_state.pdf_contrato is not None:
+                st.download_button("📥 DESCARGAR CONTRATO A4", st.session_state.pdf_contrato, st.session_state.nombre_pdf, "application/pdf")
+
+        with tab2:
+            conn = sqlite3.connect('barragan_legal_final.db')
+            df_g = pd.read_sql_query("SELECT id, nombre, tramite, estado FROM gestion_procesos", conn)
+            conn.close()
+            st.dataframe(df_g, use_container_width=True)
+            if not df_g.empty:
+                sid = st.selectbox("ID de proceso", df_g['id'])
+                n_av = st.text_area("Nuevo avance técnico")
+                n_es = st.selectbox("Estado", ["En Trámite", "Pendiente Entidad", "Exitoso"])
+                if st.button("Actualizar Proceso"):
+                    conn = sqlite3.connect('barragan_legal_final.db')
+                    cur = conn.cursor()
+                    cur.execute("UPDATE gestion_procesos SET estado=?, avances=? WHERE id=?", (n_es, n_av, sid))
+                    conn.commit()
+                    conn.close()
+                    st.success("Actualizado.")
