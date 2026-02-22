@@ -21,43 +21,19 @@ BANCO = "Banco de Bogotá"
 CLAVE_ADMIN = "Francis2026Secure"
 
 os.makedirs("contratos_generados", exist_ok=True)
+os.makedirs("contratos_firmados", exist_ok=True)
 
 # ==============================
-# BASE DE DATOS SEGURA
+# BASE DE DATOS
 # ==============================
 
 conn = sqlite3.connect("database.db", check_same_thread=False)
 c = conn.cursor()
 
-# Verificar estructura real
-c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='casos'")
-tabla_existe = c.fetchone()
-
-estructura_correcta = [
-    "id",
-    "nombre",
-    "tipo_doc",
-    "documento",
-    "tipo_tramite",
-    "accionado",
-    "valor",
-    "estado",
-    "token",
-    "fecha",
-    "consecutivo"
-]
-
-if tabla_existe:
-    c.execute("PRAGMA table_info(casos)")
-    columnas = [col[1] for col in c.fetchall()]
-    if columnas != estructura_correcta:
-        c.execute("DROP TABLE casos")
-        conn.commit()
-
-# Crear tabla correcta
 c.execute("""
 CREATE TABLE IF NOT EXISTS casos (
     id TEXT PRIMARY KEY,
+    consecutivo INTEGER,
     nombre TEXT,
     tipo_doc TEXT,
     documento TEXT,
@@ -66,10 +42,19 @@ CREATE TABLE IF NOT EXISTS casos (
     valor INTEGER,
     estado TEXT,
     token TEXT,
-    fecha TEXT,
-    consecutivo INTEGER
+    fecha TEXT
 )
 """)
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS avances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    caso_id TEXT,
+    descripcion TEXT,
+    fecha TEXT
+)
+""")
+
 conn.commit()
 
 # ==============================
@@ -83,45 +68,58 @@ def obtener_consecutivo():
 def generar_token(documento):
     return hashlib.sha256(documento.encode()).hexdigest()
 
+def generar_contrato_texto(data):
+    anticipo = data["valor"] // 2
+    saldo = data["valor"] - anticipo
+
+    return f"""
+CONTRATO No. {data['consecutivo']:04d}-2026
+
+CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA
+
+Entre los suscritos a saber:
+
+{data['nombre']}, mayor de edad, identificado(a) con {data['tipo_doc']} No. {data['documento']}, quien actúa en nombre propio y para efectos del presente contrato se denominará EL CONTRATANTE,
+
+y
+
+{CONSULTOR_NOMBRE}, mayor de edad, identificado con {CONSULTOR_DOC}, profesional con Maestría en Innovación Social, consultor en accesibilidad y gestión estratégica, inscrito en el RUT bajo la actividad económica 7490, quien para efectos del presente contrato se denominará EL CONSULTOR,
+
+se celebra el presente Contrato de Prestación de Servicios de Consultoría Técnica y Estratégica, el cual se regirá por las siguientes cláusulas:
+
+PRIMERA. OBJETO
+EL CONSULTOR se obliga a prestar servicios de asesoría técnica para {data['tipo_tramite']} contra {data['accionado']}.
+
+SEGUNDA. NATURALEZA DEL SERVICIO
+Servicio civil independiente. El consultor no es abogado titulado ni ejerce representación judicial.
+
+CUARTA. VALOR Y FORMA DE PAGO
+El valor total del contrato asciende a ${data['valor']:,} COP.
+
+Anticipo 50%: ${anticipo:,} COP.
+Saldo 50%: ${saldo:,} COP.
+
+Pago vía Llave Bre-B: {LLAVE_PAGO}
+Destino: {BANCO}.
+
+DÉCIMA PRIMERA. DOMICILIO Y LEY APLICABLE
+Se firma en Medellín el {datetime.now().strftime("%d/%m/%Y")}.
+
+EL CONTRATANTE
+
+_____________________________
+
+{CONSULTOR_NOMBRE}
+EL CONSULTOR
+"""
+
 def generar_pdf(data):
     file_path = f"contratos_generados/Contrato_{data['consecutivo']:04d}.pdf"
     doc = SimpleDocTemplate(file_path)
     styles = getSampleStyleSheet()
     elements = []
 
-    elements.append(
-        Paragraph(
-            f"<b>CONTRATO No. {data['consecutivo']:04d}-2026</b>",
-            styles["Title"]
-        )
-    )
-    elements.append(Spacer(1, 0.3 * inch))
-
-    texto = f"""
-CONTRATO DE PRESTACIÓN DE SERVICIOS DE CONSULTORÍA TÉCNICA Y ESTRATÉGICA
-
-Entre:
-
-{data['nombre']}, identificado(a) con {data['tipo_doc']} No. {data['documento']}, EL CONTRATANTE,
-
-y
-
-{CONSULTOR_NOMBRE}, identificado con {CONSULTOR_DOC}, EL CONSULTOR.
-
-PRIMERA. OBJETO
-{data['tipo_tramite']} contra {data['accionado']}.
-
-CUARTA. VALOR
-Valor total: ${data['valor']:,} COP.
-Anticipo 50%: ${data['valor']//2:,} COP.
-Saldo 50%: ${data['valor']//2:,} COP.
-
-Pago vía Llave Bre-B: {LLAVE_PAGO}
-Destino: {BANCO}
-
-Firmado en Medellín el {datetime.now().strftime("%d/%m/%Y")}.
-"""
-
+    texto = generar_contrato_texto(data)
     elements.append(Paragraph(texto.replace("\n", "<br/>"), styles["Normal"]))
     doc.build(elements)
     return file_path
@@ -149,7 +147,6 @@ with col2:
         if st.button("Cerrar sesión"):
             st.session_state.logged = False
 
-# LOGIN
 if "show_login" in st.session_state and not st.session_state.logged:
     clave = st.text_input("Clave de acceso", type="password")
     if st.button("Ingresar"):
@@ -188,73 +185,95 @@ if st.session_state.logged:
     st.divider()
     st.header("⚙️ Panel de Gestión")
 
-    nombre = st.text_input("Nombre Completo")
-    tipo_doc = st.selectbox("Tipo Documento", [
-        "Cédula de Ciudadanía",
-        "Cédula de Extranjería",
-        "Pasaporte"
-    ])
-    documento = st.text_input("Número Documento")
-    tipo_tramite = st.selectbox("Tipo de Trámite", [
-        "Solicitud de Ajustes Razonables",
-        "Reclamación reporte negativo",
-        "Derecho de Petición",
-        "Otro"
-    ])
-    accionado = st.text_input("Entidad Accionada")
-    valor = st.number_input("Valor (COP)", min_value=0, step=50000)
+    tab1, tab2 = st.tabs(["➕ Crear Caso", "📂 Gestionar Casos"])
 
-    if st.button("Generar Contrato"):
-        consecutivo = obtener_consecutivo()
-        caso_id = str(uuid.uuid4())
-        token = generar_token(documento)
+    # CREAR CASO
+    with tab1:
+        nombre = st.text_input("Nombre Completo")
+        tipo_doc = st.selectbox("Tipo Documento", [
+            "Cédula de Ciudadanía",
+            "Cédula de Extranjería",
+            "Pasaporte"
+        ])
+        documento = st.text_input("Número Documento")
+        tipo_tramite = st.text_input("Tipo de Trámite")
+        accionado = st.text_input("Entidad Accionada")
+        valor = st.number_input("Valor (COP)", min_value=0, step=50000)
 
-        c.execute("""
-        INSERT INTO casos
-        (id, nombre, tipo_doc, documento, tipo_tramite, accionado,
-         valor, estado, token, fecha, consecutivo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            caso_id,
-            nombre,
-            tipo_doc,
-            documento,
-            tipo_tramite,
-            accionado,
-            valor,
-            "Pendiente Firma",
-            token,
-            datetime.now().strftime("%Y-%m-%d"),
-            consecutivo
-        ))
-        conn.commit()
+        if st.button("Generar Contrato"):
+            consecutivo = obtener_consecutivo()
+            caso_id = str(uuid.uuid4())
+            token = generar_token(documento)
 
-        pdf_path = generar_pdf({
-            "consecutivo": consecutivo,
-            "nombre": nombre,
-            "tipo_doc": tipo_doc,
-            "documento": documento,
-            "tipo_tramite": tipo_tramite,
-            "accionado": accionado,
-            "valor": valor
-        })
+            c.execute("""
+            INSERT INTO casos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                caso_id,
+                consecutivo,
+                nombre,
+                tipo_doc,
+                documento,
+                tipo_tramite,
+                accionado,
+                valor,
+                "Pendiente Firma",
+                token,
+                datetime.now().strftime("%Y-%m-%d")
+            ))
+            conn.commit()
 
-        with open(pdf_path, "rb") as f:
-            st.download_button(
-                "📄 Descargar Contrato",
-                f,
-                file_name=f"Contrato_{consecutivo:04d}.pdf"
-            )
+            pdf_path = generar_pdf({
+                "consecutivo": consecutivo,
+                "nombre": nombre,
+                "tipo_doc": tipo_doc,
+                "documento": documento,
+                "tipo_tramite": tipo_tramite,
+                "accionado": accionado,
+                "valor": valor
+            })
 
-        st.success("Contrato generado correctamente")
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    "📄 Descargar Contrato",
+                    f,
+                    file_name=f"Contrato_{consecutivo:04d}.pdf"
+                )
 
-    st.subheader("📂 Casos Registrados")
+            st.success("Contrato generado correctamente")
 
-    casos = c.execute("""
-    SELECT consecutivo, nombre, estado, valor
-    FROM casos
-    ORDER BY consecutivo DESC
-    """).fetchall()
+    # GESTIONAR CASOS
+    with tab2:
+        casos = c.execute("SELECT * FROM casos ORDER BY consecutivo DESC").fetchall()
 
-    for caso in casos:
-        st.write(f"{caso[0]:04d} | {caso[1]} | {caso[2]} | ${caso[3]:,} COP")
+        for caso in casos:
+            with st.expander(f"Contrato {caso[1]:04d} - {caso[2]}"):
+                st.write("Estado actual:", caso[8])
+                nuevo_estado = st.selectbox(
+                    "Actualizar Estado",
+                    ["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"],
+                    index=["Pendiente Firma", "Firmado", "En Gestión", "Cerrado"].index(caso[8]),
+                    key=caso[0]
+                )
+                if st.button("Guardar Estado", key=caso[0]+"estado"):
+                    c.execute("UPDATE casos SET estado=? WHERE id=?", (nuevo_estado, caso[0]))
+                    conn.commit()
+                    st.success("Estado actualizado")
+
+                st.subheader("Subir contrato firmado")
+                archivo = st.file_uploader("Adjuntar PDF firmado", type=["pdf"], key=caso[0])
+                if archivo:
+                    with open(f"contratos_firmados/{caso[0]}.pdf", "wb") as f:
+                        f.write(archivo.read())
+                    st.success("Contrato firmado guardado")
+
+                st.subheader("Avances")
+                avance = st.text_area("Nuevo avance", key=caso[0]+"avance")
+                if st.button("Guardar Avance", key=caso[0]+"btn"):
+                    c.execute("INSERT INTO avances (caso_id, descripcion, fecha) VALUES (?, ?, ?)",
+                              (caso[0], avance, datetime.now().strftime("%Y-%m-%d")))
+                    conn.commit()
+                    st.success("Avance guardado")
+
+                avances = c.execute("SELECT descripcion, fecha FROM avances WHERE caso_id=?", (caso[0],)).fetchall()
+                for a in avances:
+                    st.write(f"{a[1]} - {a[0]}")
